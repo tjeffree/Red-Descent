@@ -1,0 +1,23 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Script" path="res://scripts/world.gd" id="2_world"]
+[ext_resource type="PackedScene" path="res://scenes/player.tscn" id="3_player"]
+[ext_resource type="Script" path="res://scripts/hud.gd" id="4_hud"]
+[ext_resource type="Script" path="res://scripts/dig_cracks.gd" id="5_cracks"]
+
+[node name="Main" type="Node2D"]
+script = ExtResource("1_main")
+
+[node name="Terrain" type="TileMapLayer" parent="."]
+script = ExtResource("2_world")
+
+[node name="DigCracks" type="Node2D" parent="Terrain"]
+script = ExtResource("5_cracks")
+
+[node name="Player" parent="." instance=ExtResource("3_player")]
+
+[node name="Debris" type="Node2D" parent="."]
+
+[node name="HUD" type="CanvasLayer" parent="."]
+script = ExtResource("4_hud")

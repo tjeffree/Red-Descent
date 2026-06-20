@@ -1,0 +1,18 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/debris.gd" id="1_debris"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_chunk"]
+size = Vector2(15, 15)
+
+[node name="Debris" type="RigidBody2D"]
+mass = 1.2
+contact_monitor = true
+max_contacts_reported = 4
+script = ExtResource("1_debris")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+scale = Vector2(0.85, 0.85)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectangleShape2D_chunk")

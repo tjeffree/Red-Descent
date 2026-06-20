@@ -1,0 +1,75 @@
+RED DESCENT — Asset Credits & Licenses
+=======================================
+
+This file tracks the provenance and licensing of all third-party assets.
+CC0 assets require no attribution, but are listed here for documentation and
+to protect against future license disputes. See
+docs/Red_Descent_Asset_Sourcing_Guide.md for selection rationale.
+
+-----------------------------------------------------------------------
+ART
+-----------------------------------------------------------------------
+
+Kenney — Pixel Platformer Blocks
+  Folder : assets/kenney_pixel_platformer_blocks/
+  Source : https://kenney.nl/assets/pixel-platformer-blocks
+  License: CC0 1.0 (public domain)
+  Used   : terrain tiles (Phase 1 test arena; Stone tile as solid block)
+
+Kenney — Pixel Platformer
+  Folder : assets/kenney_pixel_platformer/
+  Source : https://kenney.nl/assets/pixel-platformer
+  License: CC0 1.0 (public domain)
+  Used   : placeholder rig sprite (Tiles/Characters/tile_0000.png)
+
+Kenney — Particle Pack
+  Folder : assets/kenney_particle_pack/
+  Source : https://kenney.nl/assets/particle-pack
+  License: CC0 1.0 (public domain)
+  Used   : (reserved) thruster exhaust, drill heat, dust, cave-in debris
+
+Kenney — UI Pack: Sci-Fi
+  Folder : assets/kenney_ui_pack_scifi/
+  Source : https://kenney.nl/assets/ui-pack-sci-fi
+  License: CC0 1.0 (public domain)
+  Used   : Heat / Energy / Hull gauges (bar_square_large nine-patch, Grey track
+           + Red/Blue/Green fills) and the Kenney Future Narrow font (HUD)
+
+Open Pixel Project — OPP2017 Cave and Mine Cart
+  Folder : assets/opp2017_cave/
+  Source : https://opengameart.org/content/opp2017-cave-and-mine-cart
+  License: Multi-licensed — CC0 1.0 / CC-BY 3.0 / CC-BY-SA 3.0 / OGA-BY 3.0 /
+           GPL 2.0 / GPL 3.0. We use it under CC0 (author states public domain).
+  Used   : (reserved) cave/mining terrain art, biome recolor base (Phase 3+)
+
+DERIVED — Ore block tile
+  File   : assets/generated/ore_tile.png   (build script: _tools/make_ore.py)
+  Source : composite of two CC0 Kenney assets — the Stone block
+           (Pixel Platformer Blocks) with the cyan gem (tile 67, Pixel
+           Platformer) overlaid and centred.
+  License: CC0 1.0 (derivative of CC0 sources)
+  Used   : the "Ore" terrain type in Phase 3 procgen
+
+-----------------------------------------------------------------------
+AUDIO
+-----------------------------------------------------------------------
+
+Kenney — Sci-fi Sounds
+  Folder : assets/kenney_scifi_sounds/
+  Source : https://kenney.nl/assets/sci-fi-sounds
+  License: CC0 1.0 (public domain)
+  Used   : (reserved) drill, thrusters, bombs, telemetry beeps
+
+Kenney — Impact Sounds
+  Folder : assets/kenney_impact_sounds/
+  Source : https://kenney.nl/assets/impact-sounds
+  License: CC0 1.0 (public domain)
+  Used   : (reserved) block breaks, cave-in debris, hull damage
+
+-----------------------------------------------------------------------
+NOTES
+-----------------------------------------------------------------------
+- "(reserved)" = downloaded and license-cleared, not yet wired into a scene.
+- Modified assets (e.g. Martian recolors) must be noted as "modified from <source>".
+- Re-verify per-asset licenses at download time; OpenGameArt licenses are
+  set per upload.

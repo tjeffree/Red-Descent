@@ -1,0 +1,17 @@
+# Godot 4 ignores
+.godot/
+*.import.log
+
+# Build / export output
+build/
+export/
+*.exe
+*.pck
+
+# Asset download cache (keep extracted assets/, drop the raw zips)
+assets/_downloads/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
