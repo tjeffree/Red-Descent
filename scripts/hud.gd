@@ -103,6 +103,16 @@ func _ready() -> void:
 	compass_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(compass_label)
 
+	# Controller hints (face-button diamond) bottom-right.
+	var diamond := Control.new()
+	diamond.set_script(load("res://scripts/button_diamond.gd"))
+	diamond.position = Vector2(1018, 588)
+	root.add_child(diamond)
+	diamond.configure(_font, { "A": "Jump / Thrust", "Y": "Recall to hub" })
+	var dash_hint := _make_label("RB  Dash      Stick  move / dig", 13)
+	dash_hint.position = Vector2(1018, 688)
+	root.add_child(dash_hint)
+
 
 func set_return_available(v: bool) -> void:
 	_return_available = v

@@ -73,6 +73,16 @@ func _ready() -> void:
 	box.add_child(_spacer(6))
 	box.add_child(_label("[Up/Down] select    [E] buy    [Space] LAUNCH DESCENT", 17))
 
+	# Controller hints (face-button diamond) bottom-right.
+	var diamond := Control.new()
+	diamond.set_script(load("res://scripts/button_diamond.gd"))
+	diamond.position = Vector2(980, 590)
+	layer.add_child(diamond)
+	diamond.configure(_font, { "A": "Launch descent", "Y": "Buy upgrade" })
+	var nav := _label("Stick / D-pad   select", 13)
+	nav.position = Vector2(980, 688)
+	layer.add_child(nav)
+
 	_refresh()
 
 

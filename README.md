@@ -17,9 +17,9 @@ through Mars' crust in ill-suited vacuum gear. See `docs/` for the full design.
    dependent), **Energy** (every action), **Hull** (overheat + cave-in debris).
 3. **Find ore:** the **cyan compass arrow(s)** at the bottom of the screen point
    to the nearest ore and show distance — dig toward it.
-4. **Cash out:** press `E` to **Recall** at any time — your ore is smelted into
-   **Alloy** and you return to the hub. (Recall is instant from anywhere; you do
-   **not** have to climb back up, and it works even with zero ore.)
+4. **Cash out:** press `E` to **Recall** at any time — the rig fires its
+   thrusters and rockets back up to the surface, then your ore is smelted into
+   **Alloy** at the hub. Works from anywhere, even with zero ore.
 5. **Or die:** if Energy hits 0 or the Hull is crushed, the run ends and the
    carried ore is **lost** — only banked Alloy survives.
 6. **Upgrade → dive deeper:** spend Alloy → reach richer/deeper ore → more Alloy.
@@ -90,6 +90,7 @@ Tune the catalogue (costs, effects, caps) in `scripts/game_state.gd`.
 | Move | `A` / `D` or `←` / `→` |
 | Dig (into wall) | hold `A` / `D` against terrain |
 | Dig down | `S` / `↓` |
+| Dig up | hold `W` / `↑` into a block directly overhead |
 | Jump / Thrust | `Space` (tap = free jump; hold in air = Micro-G booster) |
 | Dash | `Shift` |
 | Recall to hub / Launch dive | `E` / `Enter` |
@@ -100,7 +101,7 @@ Tune the catalogue (costs, effects, caps) in `scripts/game_state.gd`.
 |---|---|
 | Move / dig sideways | Left stick or D-pad |
 | Dig down | Left stick down / D-pad down |
-| Jump / Thrust | **A** (tap = jump; hold in air = booster) |
+| Jump / Thrust / Dig up | **A** (tap = jump; hold in air = booster; hold into overhead block = dig up) |
 | Dash | **RB** (right shoulder) |
 | Recall (dive) / Buy upgrade (hub) | **Y** |
 | Launch descent (hub) | **A** |

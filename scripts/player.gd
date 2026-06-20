@@ -67,6 +67,8 @@ var compass_points: int = 1   # ore pings shown by the HUD (Seismic Scanner)
 
 # --- Internals ---
 var terrain: TileMapLayer
+var _ascending: bool = false
+var _ascent_speed: float = 0.0
 var thruster_charge: float = 0.9
 var _dash_timer: float = 0.0
 var _dash_cooldown_timer: float = 0.0
@@ -95,6 +97,14 @@ func _apply_upgrades() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if _ascending:
+		_ascent_speed = minf(_ascent_speed + 1100.0 * delta, 900.0)
+		global_position.y -= _ascent_speed * delta
+		thruster_flame.visible = true
+		if terrain != null:
+			current_depth = terrain.depth_meters(global_position)
+		return
+
 	if destroyed:
 		_apply_gravity(delta)
 		thruster_flame.visible = false
@@ -205,6 +215,11 @@ func _get_dig_target():
 	var below: Vector2i = _cell_at(Vector2(0, 13))
 	if Input.is_action_pressed("dig_down") and terrain.is_solid(below):
 		return below
+	# Dig straight up when pressing up/thrust into a block directly overhead
+	# (the booster is wasted there anyway, so the drill takes over).
+	var above: Vector2i = _cell_at(Vector2(0, -13))
+	if Input.is_action_pressed("thrust") and terrain.is_solid(above):
+		return above
 	if Input.is_action_pressed("move_right"):
 		var c := _cell_at(Vector2(11, 2))
 		if terrain.is_solid(c):
@@ -220,9 +235,19 @@ func _cell_at(offset: Vector2) -> Vector2i:
 	return terrain.local_to_map(terrain.to_local(global_position + offset))
 
 
+## Begin the recall ascent: thrusters fire and the rig rockets up to the surface
+## (collision disabled so it zips straight up the shaft) for run-end feedback.
+func start_ascent() -> void:
+	_ascending = true
+	_ascent_speed = 140.0
+	is_drilling = false
+	is_thrusting = true
+	velocity = Vector2.ZERO
+
+
 ## External damage (cave-in debris, and later other hazards).
 func take_damage(amount: float) -> void:
-	if destroyed:
+	if destroyed or _ascending:
 		return
 	hull = maxf(0.0, hull - amount)
 	if hull <= 0.0:
