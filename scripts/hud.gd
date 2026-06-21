@@ -22,9 +22,21 @@ var hull_val: Label
 var info: Label
 var status: Label
 var banner: Label
+# Compass — a centred row of directional pips along the bottom, each an arrow +
+# a distance label, colour-coded by category: ore (cyan), salvage caches (amber),
+# point of interest (violet). How many of each shows is set by the rig's Seismic
+# Scanner tier (player.ore_pings / powerup_pings / poi_pings); the Prospector Eye
+# powerup lights every ore ping. Slots are laid out each frame from the active set.
 var compass_arrows: Array[Polygon2D] = []
-var compass_label: Label
-const COMPASS_MAX := 4
+var compass_labels: Array[Label] = []
+var compass_empty: Label                 # shown when there's no signal at all
+const COMPASS_SLOTS := 7                  # 4 ore (Prospector cap) + 2 powerup + 1 POI
+const COMPASS_ORE_MAX := 4                # ore arrows shown while Prospector Eye runs
+const COMPASS_Y := 660.0
+const COMPASS_SPACING := 92.0
+const COL_PING_ORE := Color(0.35, 0.85, 1.0)
+const COL_PING_PWR := Color(1.0, 0.78, 0.30)
+const COL_PING_POI := Color(0.82, 0.56, 1.0)
 var _return_available: bool = false
 var _dock_prompt: String = ""   # set when the rig is at the capsule terminal
 var _warn_text: String = ""
@@ -159,29 +171,33 @@ void fragment() {
 	banner.visible = false
 	root.add_child(banner)
 
-	# Ore compass — arrows pinned to the bottom centre pointing toward the
-	# nearest ore(s). The Seismic Scanner upgrade adds more pings (GDD §6).
+	# Compass — a pool of directional pips (arrow + distance) pinned to the bottom
+	# centre. Slots are positioned each frame from however many categories are
+	# active (ore / salvage caches / point of interest); see _update_compass.
 	var arrow_shape := PackedVector2Array([
 		Vector2(-14, -4), Vector2(2, -4), Vector2(2, -9),
 		Vector2(18, 0), Vector2(2, 9), Vector2(2, 4), Vector2(-14, 4)
 	])
-	for i in range(COMPASS_MAX):
+	for i in range(COMPASS_SLOTS):
 		var a := Polygon2D.new()
 		a.polygon = arrow_shape
-		# Nearest ping is brightest/largest; further pings dimmer and smaller.
-		var f := 1.0 - 0.18 * i
-		a.color = Color(0.35, 0.85, 1.0, 1.0 - 0.22 * i)
-		a.scale = Vector2(f, f)
-		a.position = Vector2(640, 666)
+		a.position = Vector2(640, COMPASS_Y)
 		a.visible = false
 		root.add_child(a)
 		compass_arrows.append(a)
 
-	compass_label = _make_label("", 16)
-	compass_label.position = Vector2(540, 684)
-	compass_label.size = Vector2(200, 24)
-	compass_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	root.add_child(compass_label)
+		var lbl := _make_label("", 14)
+		lbl.size = Vector2(96, 20)
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.visible = false
+		root.add_child(lbl)
+		compass_labels.append(lbl)
+
+	compass_empty = _make_label("no signal", 14)
+	compass_empty.position = Vector2(596, COMPASS_Y + 18.0)
+	compass_empty.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	compass_empty.visible = false
+	root.add_child(compass_empty)
 
 	# Controller hints (face-button diamond) bottom-right.
 	var diamond := Control.new()
@@ -345,28 +361,53 @@ func show_banner(text: String) -> void:
 
 func _update_compass(p: Node) -> void:
 	var t = p.terrain
-	if t == null or not t.has_method("nearest_ores"):
-		for a in compass_arrows:
-			a.visible = false
-		compass_label.text = ""
-		return
+	# Collect the active pings as { angle, dist, color, tag }, in category order.
+	var pings: Array = []
+	if t != null and t.has_method("nearest_ores"):
+		var pos: Vector2 = p.global_position
 
-	# Prospector Eye lights every ping; otherwise the Seismic Scanner count.
-	var count: int = COMPASS_MAX if (p.has_method("has_boost") and p.has_boost("prospector")) else clampi(p.compass_points, 1, COMPASS_MAX)
-	var ores: Array = t.nearest_ores(p.global_position, count)
+		# Ore — base 1, Seismic Scanner tier 1 makes it 2; Prospector Eye lights all.
+		var ore_n: int = COMPASS_ORE_MAX if (p.has_method("has_boost") and p.has_boost("prospector")) else int(p.get("ore_pings"))
+		for o in t.nearest_ores(pos, ore_n):
+			pings.append(_ping(pos, o, COL_PING_ORE, "ORE"))
 
-	for i in range(COMPASS_MAX):
-		if i < ores.size():
-			var dir: Vector2 = ores[i]["position"] - p.global_position
-			compass_arrows[i].rotation = dir.angle()
+		# Salvage caches — Seismic Scanner tier 2+.
+		var pwr_n: int = int(p.get("powerup_pings"))
+		if pwr_n > 0 and t.has_method("nearest_powerups"):
+			for c in t.nearest_powerups(pos, pwr_n):
+				pings.append(_ping(pos, c, COL_PING_PWR, "TECH"))
+
+		# Point of interest — top tier: nearest data log, else the capsule ("EXIT").
+		if int(p.get("poi_pings")) > 0 and t.has_method("nearest_poi"):
+			for poi in t.nearest_poi(pos, int(p.get("poi_pings"))):
+				var tag: String = "EXIT" if String(poi.get("poi", "")) == "exit" else "LOG"
+				pings.append(_ping(pos, poi, COL_PING_POI, tag))
+
+	# Lay the active pings out as a centred row; hide the unused slots.
+	var n: int = mini(pings.size(), COMPASS_SLOTS)
+	var start_x: float = 640.0 - float(n - 1) * COMPASS_SPACING * 0.5
+	for i in range(COMPASS_SLOTS):
+		if i < n:
+			var pg: Dictionary = pings[i]
+			var x: float = start_x + float(i) * COMPASS_SPACING
+			compass_arrows[i].position = Vector2(x, COMPASS_Y)
+			compass_arrows[i].rotation = float(pg["angle"])
+			compass_arrows[i].color = pg["color"]
 			compass_arrows[i].visible = true
+			compass_labels[i].text = "%s %dm" % [pg["tag"], int(pg["dist"])]
+			compass_labels[i].position = Vector2(x - 48.0, COMPASS_Y + 18.0)
+			compass_labels[i].add_theme_color_override("font_color", pg["color"])
+			compass_labels[i].visible = true
 		else:
 			compass_arrows[i].visible = false
+			compass_labels[i].visible = false
+	compass_empty.visible = n == 0
 
-	if ores.is_empty():
-		compass_label.text = "no ore detected"
-	else:
-		compass_label.text = "ORE  %d m" % int(ores[0]["distance_m"])
+
+## Build a compass ping entry from a { position, distance_m } target.
+func _ping(from: Vector2, entry: Dictionary, color: Color, tag: String) -> Dictionary:
+	var dir: Vector2 = Vector2(entry["position"]) - from
+	return { "angle": dir.angle(), "dist": float(entry["distance_m"]), "color": color, "tag": tag }
 
 
 func flash(text: String) -> void:

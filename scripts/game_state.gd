@@ -11,12 +11,12 @@ const ALLOY_PER_ORE := 1
 # Permanent upgrades. cost(level) = round(base * growth^level); each level adds
 # `per` to the relevant rig stat. Applied in player.gd._apply_upgrades().
 const UPGRADES: Array = [
-	{ "id": "battery", "name": "Battery Cells",   "unit": "max energy",   "base": 6,  "growth": 1.6, "max": 6, "per": 35.0 },
-	{ "id": "drill",   "name": "Drill Servo",     "unit": "drill power",  "base": 8,  "growth": 1.7, "max": 6, "per": 0.30 },
+	{ "id": "battery", "name": "Battery Cells",   "unit": "max energy",   "base": 6,  "growth": 1.6, "max": 8, "per": 35.0 },
+	{ "id": "drill",   "name": "Drill Servo",     "unit": "drill power",  "base": 8,  "growth": 1.7, "max": 8, "per": 0.30 },
 	{ "id": "cooling", "name": "Coolant Vanes",   "unit": "heat venting", "base": 6,  "growth": 1.6, "max": 5, "per": 5.0 },
 	{ "id": "hull",    "name": "Hull Plating",    "unit": "max hull",     "base": 8,  "growth": 1.7, "max": 5, "per": 25.0 },
 	{ "id": "auger",   "name": "Wide Auger",      "unit": "dig reach",    "base": 14, "growth": 1.7, "max": 5, "per": 1.0 },
-	{ "id": "scanner", "name": "Seismic Scanner", "unit": "ore pings",    "base": 12, "growth": 2.0, "max": 3, "per": 1.0 },
+	{ "id": "scanner", "name": "Seismic Scanner", "unit": "compass arrays","base": 14, "growth": 1.9, "max": 4, "per": 1.0 },
 ]
 
 # Ship-repair meta track (GDD §7). The mid-game goal: smelt Alloy and spend it

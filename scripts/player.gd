@@ -81,7 +81,14 @@ var in_radiation: bool = false   # telemetry-scramble flag (no stat damage)
 # (deeper per pass / further into the wall). Shape per level — see AUGER_SHAPE.
 var dig_side: int = 1    # half-width perpendicular to the dig direction
 var dig_reach: int = 0   # extra tiles beyond the first, along the dig direction
-var compass_points: int = 1   # ore pings shown by the HUD (Seismic Scanner)
+# Seismic Scanner compass tiers (set in _apply_upgrades from the scanner level):
+# how many directional pings the HUD shows, by category.
+#   ore_pings     1 base, 2 from tier 1
+#   powerup_pings tier 2 -> 1, tier 3+ -> 2 (points at buried salvage caches)
+#   poi_pings     tier 4 -> 1 (nearest data log, else the capsule)
+var ore_pings: int = 1
+var powerup_pings: int = 0
+var poi_pings: int = 0
 
 # Per-auger-level (side, reach). Index 0 = no upgrade (L0); L1 keeps the
 # original 3-wide shaft (side=1, reach=0). Growth alternates wider/deeper.
@@ -149,7 +156,10 @@ func _apply_upgrades() -> void:
 	var auger_lv: int = clampi(GameState.level("auger"), 0, AUGER_SHAPE.size() - 1)
 	dig_side = AUGER_SHAPE[auger_lv].x
 	dig_reach = AUGER_SHAPE[auger_lv].y
-	compass_points = 1 + int(GameState.effect("scanner"))
+	var sc: int = GameState.level("scanner")
+	ore_pings = 2 if sc >= 1 else 1
+	powerup_pings = clampi(sc - 1, 0, 2)   # tier 2 -> 1, tier 3+ -> 2
+	poi_pings = 1 if sc >= 4 else 0
 
 
 func _physics_process(delta: float) -> void:
