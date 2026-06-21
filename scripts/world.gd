@@ -32,11 +32,11 @@ const MANTLE_END_M := 1000.0   # Ruins begin here (rigid, indestructible archite
 # `modulate` tints the (shared) texture — used to give the Ruins a cold/metallic
 # look. `indestructible` blocks refuse the drill (the Ruins' rigid architecture).
 const BLOCKS: Array = [
-	{ "name": "Dirt",       "tex": "res://assets/kenney_pixel_platformer_blocks/Tiles/Sand/tile_0000.png",   "hardness": 0.45, "heat": 7.0 },
-	{ "name": "Rock",       "tex": "res://assets/kenney_pixel_platformer_blocks/Tiles/Stone/tile_0000.png",  "hardness": 1.10, "heat": 16.0 },
-	{ "name": "Basalt",     "tex": "res://assets/kenney_pixel_platformer_blocks/Tiles/Rock/tile_0000.png",   "hardness": 2.00, "heat": 42.0 },
-	{ "name": "Permafrost", "tex": "res://assets/kenney_pixel_platformer_blocks/Tiles/Marble/tile_0000.png", "hardness": 0.90, "heat": -30.0 },
-	{ "name": "Ore",        "tex": "res://assets/generated/ore_tile.png",                                    "hardness": 1.30, "heat": 20.0 },
+	{ "name": "Dirt",       "tex": "res://assets/generated/mars_dirt.png",                                   "hardness": 0.45, "heat": 7.0 },
+	{ "name": "Rock",       "tex": "res://assets/generated/mars_rock.png",                                   "hardness": 1.10, "heat": 16.0 },
+	{ "name": "Basalt",     "tex": "res://assets/generated/mars_basalt.png",                                 "hardness": 2.00, "heat": 42.0 },
+	{ "name": "Permafrost", "tex": "res://assets/generated/mars_permafrost.png",                             "hardness": 0.90, "heat": -30.0 },
+	{ "name": "Ore",        "tex": "res://assets/generated/mars_ore.png",                                    "hardness": 1.30, "heat": 20.0 },
 	# --- Ruins (Phase 8) ---
 	{ "name": "Bulkhead",   "tex": "res://assets/kenney_pixel_platformer_blocks/Tiles/Marble/tile_0000.png", "hardness": 999.0, "heat": 0.0, "indestructible": true, "modulate": Color(0.52, 0.64, 0.82) },
 	{ "name": "Vault",      "tex": "res://assets/kenney_pixel_platformer_blocks/Tiles/Stone/tile_0000.png",  "hardness": 4.0, "heat": 12.0, "modulate": Color(0.80, 0.58, 0.34) },
@@ -62,6 +62,12 @@ const ORE_THRESHOLD_DEEP := 0.42
 const DebrisScene := preload("res://scenes/debris.tscn")
 const COLLAPSE_SPAN := 3      # open tiles under a ceiling before it's unstable
 const COLLAPSE_CHANCE := 0.25
+# Each Wide Auger level shaves this much off the collapse chance: the upgrade
+# that widens digs also bores a steadier shaft, so wider augers cave in less.
+# The relief bottoms out at CAVEIN_CHANCE_MIN — even the widest auger still
+# carries some collapse risk.
+const CAVEIN_AUGER_RELIEF := 0.05
+const CAVEIN_CHANCE_MIN := 0.10
 const MAX_COLLAPSE := 3       # tiles that fall per cave-in (chain feel)
 
 signal cavein
@@ -482,7 +488,8 @@ func _try_cavein(cell: Vector2i) -> void:
 		x += 1
 	if span < COLLAPSE_SPAN:
 		return
-	if randf() > COLLAPSE_CHANCE:
+	var chance: float = maxf(CAVEIN_CHANCE_MIN, COLLAPSE_CHANCE - CAVEIN_AUGER_RELIEF * GameState.level("auger"))
+	if randf() > chance:
 		return
 
 	# Collapse the column of solid tiles above into debris.

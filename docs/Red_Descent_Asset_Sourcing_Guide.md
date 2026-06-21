@@ -131,7 +131,7 @@ Mirrors the GDD's prototype phasing so art never blocks code.
 
 ## 8. Open Gaps / Decisions Needed
 
-- **No off-the-shelf Mars tileset** in CC0 — plan to recolor a cave/dirt set or commission custom biome tiles. *(Recommended: recolor for prototype, custom later.)*
+- ~~**No off-the-shelf Mars tileset** in CC0 — plan to recolor a cave/dirt set or commission custom biome tiles.~~ **Resolved:** Martian block tiles are now baked procedurally from hand-tuned palettes via `_tools/make_mars_tiles.py` → `assets/generated/mars_*.png` (rusty Crust regolith deepening to volcanic Mantle basalt + dusty permafrost ice; ore keeps the CC0 cyan gem for vein readability). Re-run the tool to retune the palette. *(Custom hand-painted tiles still an option later.)*
 - **The rig sprite** is the brand of the game — placeholder now, but budget for a bespoke sprite + animation set.
 - **The Ruins** rigid-architecture look may need a dedicated sci-fi dungeon tileset beyond Kenney's space sets; evaluate during Phase planning.
 - **Cohesion risk:** mixing Kenney + OpenGameArt + itch sources can clash visually. Mitigate by standardizing on one palette (e.g. DawnBringer-32, which OPP2017 already uses) and recoloring everything to it.

@@ -48,7 +48,18 @@ DERIVED — Ore block tile
            (Pixel Platformer Blocks) with the cyan gem (tile 67, Pixel
            Platformer) overlaid and centred.
   License: CC0 1.0 (derivative of CC0 sources)
-  Used   : the "Ore" terrain type in Phase 3 procgen
+  Used   : superseded by the Martian block tiles below (kept for reference)
+
+DERIVED — Martian terrain block tiles
+  Files  : assets/generated/mars_dirt.png, mars_rock.png, mars_basalt.png,
+           mars_permafrost.png, mars_ore.png  (build script:
+           _tools/make_mars_tiles.py)
+  Source : procedurally baked from hand-tuned Martian palettes (rusty
+           regolith -> volcanic basalt -> dusty subsurface ice). The ore tile
+           composites the CC0 Kenney cyan gem (tile 67, Pixel Platformer) onto
+           the Mars host rock for high-contrast vein readability.
+  License: CC0 1.0 (original generated art; gem overlay is a CC0 derivative)
+  Used   : the Dirt/Rock/Basalt/Permafrost/Ore terrain types (Crust + Mantle)
 
 DERIVED — Surface ship (4 repair stages)
   Files  : assets/generated/wreckage-0.png .. wreckage-3.png
