@@ -54,7 +54,7 @@ sacrifice of the upgraded rig.
 | 6 | **The Mantle & the long-term spine** — deeper world, real biome bands, Mantle hazards, ship-repair track, telemetry-beacon checkpoint | **Done & verified** (see below; all scenes load clean in 4.5.1) |
 | 7 | **Telemetry / narrative beats** — pilot-log transmissions, buried data logs, Earth-relay contact, hub archive | **Done & verified** (see below; all scenes load clean in 4.5.1) |
 | 8 | **The Ruins** — rigid architecture below 1000 m (indestructible bulkheads, drillable vault doors, cold palette, guaranteed grand shaft); the silo Discovery beat | **Done & verified** (see below; all scenes load clean in 4.5.1) |
-| 9 | **Climax & Endgame** — dock the rig, transfer power (drains meta-upgrades), 60 s lockdown collapse-survival, watch the rig crushed, launch to Earth | Planned |
+| 9 | **Climax & Endgame** — dock the capsule, transfer power (drains meta-upgrades), lockdown collapse, launch to Earth, ending card | **Done & verified** (see below; all scenes load clean in 4.5.1) |
 
 ### Phase 6 — implemented (The Mantle)
 
@@ -125,3 +125,22 @@ All in `world.gd` (plus one Ruins lore beat). The world now extends past the Man
 - **Discovery beat** (`lore.gd`): a `t_ruins` pilot transmission fires on entering the biome
   ("I'm inside it… this is a structure"), atop the existing `t_deep` (985 m) line and the Ruins
   biome banner. Sets up the Phase 9 silo/capsule climax.
+
+### Phase 9 — implemented (The Climax & Endgame)
+
+- **Capsule terminal** (`world.gd`): `_carve_ruins()` opens a chamber at the very bottom of the
+  grand shaft; `capsule_position()` returns its world point.
+- **Docking** (`main.gd` + `hud.gd`): within `DOCK_RANGE` of the capsule the HUD shows a dock
+  prompt (top-priority status, via `hud.set_dock_prompt`) instead of the recall prompt; `interact`
+  there changes to `scenes/endgame.tscn`.
+- **The Sacrifice** (`game_state.gd`): `sacrifice_rig()` permanently clears every rig upgrade
+  (`levels = {}`) and sets a persisted `escaped` flag — the cost of powering the capsule.
+- **Cinematic** (`scripts/endgame.gd` + `scenes/endgame.tscn`): a five-beat scripted sequence —
+  *reveal* → *transfer* (calls `sacrifice_rig`) → *lockdown* (a countdown the player watches as
+  raining-debris + screen-shake collapse FX build, with the rig crushed in the final seconds) →
+  *launch* → *end* card → main menu. The **reveal** and **launch** beats play full-screen
+  `VideoStreamPlayer` clips (`assets/video/silo-reveal.ogv` / `launch.ogv`) when present and fall
+  back to styled text cards otherwise; `interact`/`jump` skips the video beats.
+- **Video**: `silo-reveal.ogv` (converted from the supplied mp4) is wired and verified; `launch.ogv`
+  drops in the same way once generated. Conversion: `ffmpeg -i in.mp4 -codec:v libtheora -qscale:v 8
+  -codec:a libvorbis -qscale:a 5 out.ogv` then re-import (Godot 4 only decodes Ogg Theora).

@@ -39,6 +39,7 @@ var ship_repaired: Dictionary = {}   # ship part id -> bool
 var selected_start_m: float = 0.0    # chosen launch depth (0 = Surface)
 var seen_transmissions: Dictionary = {}  # Lore transmission id -> true (Phase 7)
 var collected_logs: Dictionary = {}      # Lore data-log id -> true (Phase 7)
+var escaped: bool = false                # completed the endgame at least once (Phase 9)
 
 
 func _ready() -> void:
@@ -182,6 +183,16 @@ func collect_log(id: String) -> void:
 		save_game()
 
 
+# --- Endgame (Phase 9) ---
+
+## Transfer the rig's power to the capsule: permanently drain every rig upgrade
+## (the Ultimate Sacrifice, GDD §7), mark the run escaped, and persist.
+func sacrifice_rig() -> void:
+	levels = {}
+	escaped = true
+	save_game()
+
+
 # --- Runs ---
 
 func record_run(reason: String, ore: int, depth: float, banked: bool) -> void:
@@ -206,6 +217,7 @@ func save_game() -> void:
 		"selected_start_m": selected_start_m,
 		"seen_transmissions": seen_transmissions,
 		"collected_logs": collected_logs,
+		"escaped": escaped,
 	}))
 
 
@@ -243,3 +255,4 @@ func load_game() -> void:
 	if typeof(cl) == TYPE_DICTIONARY:
 		for k in cl:
 			collected_logs[k] = bool(cl[k])
+	escaped = bool(data.get("escaped", false))

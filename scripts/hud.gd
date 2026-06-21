@@ -26,6 +26,7 @@ var compass_arrows: Array[Polygon2D] = []
 var compass_label: Label
 const COMPASS_MAX := 4
 var _return_available: bool = false
+var _dock_prompt: String = ""   # set when the rig is at the capsule terminal
 var _warn_text: String = ""
 var _warn_timer: float = 0.0
 
@@ -221,6 +222,11 @@ func set_return_available(v: bool) -> void:
 	_return_available = v
 
 
+## When non-empty, shown as the top-priority status line (the capsule dock prompt).
+func set_dock_prompt(text: String) -> void:
+	_dock_prompt = text
+
+
 func show_banner(text: String) -> void:
 	banner.text = text
 	banner.visible = true
@@ -373,6 +379,8 @@ func update_stats(p: Node) -> void:
 		msg = "!! OVERHEAT — hull venting, drill locked until cooled !!"
 	if _warn_timer > 0.0:
 		msg = _warn_text
+	if _dock_prompt != "":
+		msg = _dock_prompt   # at the capsule — highest priority
 	status.text = msg
 
 

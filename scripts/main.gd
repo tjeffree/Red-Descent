@@ -6,6 +6,8 @@ extends Node2D
 ## hub (ore is smelted into Alloy via GameState). Then returns to the hub.
 
 const HUB_SCENE := "res://scenes/hub.tscn"
+const ENDGAME_SCENE := "res://scenes/endgame.tscn"
+const DOCK_RANGE := 46.0       # px from the capsule terminal that allows docking
 const DEATH_DELAY := 2.6       # banner time before returning after death
 const ASCENT_PAUSE := 0.5      # brief pause once the surface is reached
 const ASCENT_MAX := 3.5        # safety cap on the ascent animation
@@ -138,6 +140,17 @@ func _process_diving(delta: float) -> void:
 	if player.energy <= 0.0:
 		_die("POWER DEPLETED — battery dead")
 		return
+
+	# At the capsule terminal (shaft bottom) docking takes over from recall — this
+	# begins the endgame (GDD §7): the rig is sacrificed to launch the capsule.
+	if player.global_position.distance_to(terrain.capsule_position()) < DOCK_RANGE:
+		hud.set_return_available(false)
+		hud.set_dock_prompt("[E] DOCK — give the capsule the rig's power")
+		if Input.is_action_just_pressed("interact"):
+			hud.set_dock_prompt("")
+			get_tree().change_scene_to_file(ENDGAME_SCENE)
+		return
+	hud.set_dock_prompt("")
 
 	# Voluntary recall is always available — ore (if any) is banked.
 	hud.set_return_available(true)

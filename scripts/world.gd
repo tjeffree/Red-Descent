@@ -52,6 +52,11 @@ const VAULT := 6
 
 const CAVE_THRESHOLD := 0.40
 const ORE_THRESHOLD := 0.62
+# Ore density ramps up with depth: above ORE_RAMP_START_M the noise bar is
+# lowered (lower bar = more ore) on a linear ramp down to ORE_THRESHOLD_DEEP at
+# the bottom of the Mantle, so deeper digs are progressively ore-richer.
+const ORE_RAMP_START_M := 200.0
+const ORE_THRESHOLD_DEEP := 0.42
 
 # Cave-ins: digging out a ceiling wider than this can trigger a collapse.
 const DebrisScene := preload("res://scenes/debris.tscn")
@@ -259,6 +264,20 @@ func _carve_ruins() -> void:
 		ry += RUINS_ROOM_STEP
 		side = -side
 
+	# The capsule chamber at the very bottom of the shaft — where the rig docks
+	# the silo's escape capsule (the endgame, Phase 9).
+	var bx: int = int(_shaft_cx.get(rb, W / 2))
+	for ox in range(-4, 5):
+		for oy in range(-6, 1):
+			_clear_cell(Vector2i(bx + ox, rb + oy))
+
+
+## World position of the escape-capsule terminal at the bottom of the grand shaft.
+func capsule_position() -> Vector2:
+	var rb: int = H - BEDROCK_ROWS - 1
+	var bx: int = int(_shaft_cx.get(rb, W / 2))
+	return to_global(map_to_local(Vector2i(bx, rb)))
+
 
 ## A rectangular chamber to one `side` of the shaft, walled in Bulkhead with a
 ## 2-tall rusted Vault door connecting it to the shaft.
@@ -304,13 +323,21 @@ func _cave_threshold(depth_m: float) -> float:
 	return 0.28                           # Mantle — denser, larger cavities
 
 
+## Ore noise bar by depth. Constant near the surface, then ramps down linearly
+## (lower bar = more ore) from ORE_RAMP_START_M to the bottom of the Mantle.
+func _ore_threshold(depth_m: float) -> float:
+	if depth_m <= ORE_RAMP_START_M:
+		return ORE_THRESHOLD
+	var t: float = clampf((depth_m - ORE_RAMP_START_M) / (MANTLE_END_M - ORE_RAMP_START_M), 0.0, 1.0)
+	return lerpf(ORE_THRESHOLD, ORE_THRESHOLD_DEEP, t)
+
+
 func _material(x: int, y: int, depth_m: float) -> int:
 	var depth: int = y - SURFACE_Y
 
-	# Ore veins throughout. Deeper veins are rarer (lower threshold harder to
-	# meet would mean MORE; we raise the bar with depth so deep ore is scarcer).
-	var ore_bar: float = ORE_THRESHOLD if depth_m < CRUST_END_M else ORE_THRESHOLD + 0.06
-	if depth > 4 and _ore.get_noise_2d(x, y) > ore_bar:
+	# Ore veins throughout. Deeper veins are richer: the noise bar lowers with
+	# depth past ORE_RAMP_START_M (see _ore_threshold), so deep ore is denser.
+	if depth > 4 and _ore.get_noise_2d(x, y) > _ore_threshold(depth_m):
 		return ORE
 
 	var m: float = _mat.get_noise_2d(x, y)
