@@ -157,7 +157,8 @@ func _generate() -> void:
 				_bedrock_cells[cell] = true
 				continue
 			if x == 0 or x == W - 1:
-				_place(x, y, ROCK)            # bordering walls
+				_place(x, y, BASALT)          # indestructible bordering walls
+				_bedrock_cells[cell] = true
 				continue
 			if y < SURFACE_Y:
 				continue                      # open sky
