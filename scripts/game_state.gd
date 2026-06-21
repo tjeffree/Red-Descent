@@ -15,14 +15,28 @@ const UPGRADES: Array = [
 	{ "id": "drill",   "name": "Drill Servo",     "unit": "drill power",  "base": 8,  "growth": 1.7, "max": 6, "per": 0.30 },
 	{ "id": "cooling", "name": "Coolant Vanes",   "unit": "heat venting", "base": 6,  "growth": 1.6, "max": 5, "per": 5.0 },
 	{ "id": "hull",    "name": "Hull Plating",    "unit": "max hull",     "base": 8,  "growth": 1.7, "max": 5, "per": 25.0 },
-	{ "id": "auger",   "name": "Wide Auger",      "unit": "dig width",    "base": 18, "growth": 2.5, "max": 2, "per": 1.0 },
+	{ "id": "auger",   "name": "Wide Auger",      "unit": "dig reach",    "base": 14, "growth": 1.7, "max": 5, "per": 1.0 },
 	{ "id": "scanner", "name": "Seismic Scanner", "unit": "ore pings",    "base": 12, "growth": 2.0, "max": 3, "per": 1.0 },
 ]
+
+# Ship-repair meta track (GDD §7). The mid-game goal: smelt Alloy and spend it
+# to repair the crashed ship. Ascending cost; payoff teaser shown when complete.
+const SHIP_PARTS: Array = [
+	{ "id": "hull",  "name": "Hull Breach Seal", "cost": 60,  "desc": "Patch the torn fuselage." },
+	{ "id": "comms", "name": "Comms Array",      "cost": 90,  "desc": "Re-establish the uplink." },
+	{ "id": "nav",   "name": "Nav Computer",     "cost": 130, "desc": "Restore guidance." },
+	{ "id": "drive", "name": "Drive Core",       "cost": 220, "desc": "Recharge the main drive." },
+]
+
+# Telemetry beacon: dives can start at a previously-reached 250 m milestone.
+const CHECKPOINT_STEP := 250.0
 
 var alloy: int = 0
 var best_depth: float = 0.0
 var last_run: Dictionary = {}
 var levels: Dictionary = {}   # upgrade id -> level (int)
+var ship_repaired: Dictionary = {}   # ship part id -> bool
+var selected_start_m: float = 0.0    # chosen launch depth (0 = Surface)
 
 
 func _ready() -> void:
@@ -80,6 +94,65 @@ func effect(id: String) -> float:
 	return float(level(id)) * float(u["per"])
 
 
+# --- Ship repair ---
+
+func _part_def(id: String) -> Dictionary:
+	for p in SHIP_PARTS:
+		if p["id"] == id:
+			return p
+	return {}
+
+
+func part_repaired(id: String) -> bool:
+	return bool(ship_repaired.get(id, false))
+
+
+func can_repair(id: String) -> bool:
+	var p := _part_def(id)
+	if p.is_empty() or part_repaired(id):
+		return false
+	return alloy >= int(p["cost"])
+
+
+func repair(id: String) -> bool:
+	if not can_repair(id):
+		return false
+	alloy -= int(_part_def(id)["cost"])
+	ship_repaired[id] = true
+	save_game()
+	return true
+
+
+## Fraction of ship parts repaired, 0..1.
+func ship_progress() -> float:
+	if SHIP_PARTS.is_empty():
+		return 0.0
+	var done := 0
+	for p in SHIP_PARTS:
+		if part_repaired(p["id"]):
+			done += 1
+	return float(done) / float(SHIP_PARTS.size())
+
+
+func ship_complete() -> bool:
+	for p in SHIP_PARTS:
+		if not part_repaired(p["id"]):
+			return false
+	return true
+
+
+# --- Telemetry beacon (launch-depth checkpoints) ---
+
+## Reachable launch depths: always 0.0 (Surface), plus each CHECKPOINT_STEP
+## milestone up to floor(best_depth/STEP)*STEP. Ascending, no duplicates.
+func available_checkpoints() -> Array:
+	var out: Array = [0.0]
+	var count := int(floor(best_depth / CHECKPOINT_STEP))
+	for i in range(1, count + 1):
+		out.append(float(i) * CHECKPOINT_STEP)
+	return out
+
+
 # --- Runs ---
 
 func record_run(reason: String, ore: int, depth: float, banked: bool) -> void:
@@ -100,6 +173,8 @@ func save_game() -> void:
 		"alloy": alloy,
 		"best_depth": best_depth,
 		"levels": levels,
+		"ship_repaired": ship_repaired,
+		"selected_start_m": selected_start_m,
 	}))
 
 
@@ -119,3 +194,10 @@ func load_game() -> void:
 	if typeof(lv) == TYPE_DICTIONARY:
 		for k in lv:
 			levels[k] = int(lv[k])
+	# Phase 6 fields — safe defaults for old saves that predate them.
+	var sr: Variant = data.get("ship_repaired", {})
+	ship_repaired = {}
+	if typeof(sr) == TYPE_DICTIONARY:
+		for k in sr:
+			ship_repaired[k] = bool(sr[k])
+	selected_start_m = float(data.get("selected_start_m", 0.0))

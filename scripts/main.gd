@@ -18,14 +18,32 @@ const ASCENT_MAX := 3.5        # safety cap on the ascent animation
 var _state: String = "diving"  # diving / ascending / ending
 var _timer: float = 0.0
 var _surface_y: float = 0.0
+var _current_biome: String = ""   # tracked to narrate biome transitions
+
+# Display copy for each biome transition (the "what's happening" feedback).
+const BIOME_BANNERS := {
+	"crust": "THE CRUST — dirt, rock, the easy dig",
+	"mantle": "ENTERING THE MANTLE — basalt, lava tubes, toxic gas",
+	"ruins": "THE RUINS — pressure mounts, radiation in the dark",
+}
 
 
 func _ready() -> void:
 	player.terrain = terrain
 	terrain.debris_container = debris
 	terrain.cavein.connect(_on_cavein)
-	player.global_position = terrain.get_start_position()
-	_surface_y = player.global_position.y
+
+	# Recall always rises to the TRUE surface, regardless of where we launched.
+	_surface_y = terrain.get_start_position().y
+
+	# Start-at-depth: drop in at the chosen launch depth, else the surface.
+	if GameState.selected_start_m > 0.0:
+		player.global_position = terrain.get_start_position_at_depth(GameState.selected_start_m)
+	else:
+		player.global_position = terrain.get_start_position()
+
+	player.current_depth = terrain.depth_meters(player.global_position)
+	_current_biome = terrain.biome_at_depth(player.current_depth)
 
 
 func _on_cavein() -> void:
@@ -50,6 +68,12 @@ func _process(delta: float) -> void:
 
 
 func _process_diving() -> void:
+	# Narrate biome transitions (crust → mantle → ruins) as the rig descends.
+	var biome: String = terrain.biome_at_depth(player.current_depth)
+	if biome != _current_biome:
+		_current_biome = biome
+		hud.flash(BIOME_BANNERS.get(biome, biome.to_upper()))
+
 	# Death conditions (GDD §2): ore is lost.
 	if player.destroyed:
 		_die("RIG CRUSHED — hull integrity lost")

@@ -29,6 +29,20 @@ var _return_available: bool = false
 var _warn_text: String = ""
 var _warn_timer: float = 0.0
 
+# Biome internal id → HUD display name.
+const BIOME_NAMES := {
+	"crust": "THE CRUST",
+	"mantle": "THE MANTLE",
+	"ruins": "THE RUINS",
+}
+
+# Hazard id → status-line warning copy.
+const HAZARD_WARN := {
+	"gas": "!! TOXIC GAS — hull corroding !!",
+	"lava": "!! LAVA TUBE — heat surge !!",
+	"radiation": "!! RADIATION — telemetry scrambled !!",
+}
+
 
 func _ready() -> void:
 	_font = load(FONT_PATH)
@@ -50,7 +64,7 @@ func _ready() -> void:
 	vbox.add_theme_constant_override("separation", 7)
 	root.add_child(vbox)
 
-	vbox.add_child(_make_label("RED DESCENT  —  Phase 5: Hazards", 18))
+	vbox.add_child(_make_label("RED DESCENT  —  Phase 6: The Mantle", 18))
 
 	var hg := _make_gauge(vbox, "HEAT", BAR_HEAT)
 	heat_bar = hg[0]
@@ -197,22 +211,67 @@ func _make_gauge(parent: Node, gauge_name: String, fill_tex: String) -> Array:
 
 
 func update_stats(p: Node) -> void:
+	# Gauges always reflect true values; only their % readouts are scrambled.
 	heat_bar.value = p.heat / p.heat_max * 100.0
 	energy_bar.value = p.energy / p.energy_max * 100.0
 	hull_bar.value = p.hull / p.hull_max * 100.0
-	heat_val.text = "%d%%" % int(round(heat_bar.value))
-	energy_val.text = "%d%%" % int(round(energy_bar.value))
-	hull_val.text = "%d%%" % int(round(hull_bar.value))
 
-	info.text = "DEPTH  %d m     ORE  %d     ALLOY  %d" % [int(p.current_depth), p.ore_collected, GameState.alloy]
+	var scramble: bool = bool(p.in_radiation)
+	heat_val.text = _pct_readout(heat_bar.value, scramble)
+	energy_val.text = _pct_readout(energy_bar.value, scramble)
+	hull_val.text = _pct_readout(hull_bar.value, scramble)
+
+	var biome_id: String = ""
+	if p.terrain != null and p.terrain.has_method("biome_at_depth"):
+		biome_id = p.terrain.biome_at_depth(p.current_depth)
+	var biome_name: String = BIOME_NAMES.get(biome_id, "")
+	var depth_str: String = _depth_readout(int(p.current_depth), scramble)
+	var biome_str: String = _scramble_text(biome_name, scramble) if not biome_name.is_empty() else ""
+
+	if biome_str.is_empty():
+		info.text = "DEPTH  %s m     ORE  %d     ALLOY  %d" % [depth_str, p.ore_collected, GameState.alloy]
+	else:
+		info.text = "%s     DEPTH  %s m     ORE  %d     ALLOY  %d" % [biome_str, depth_str, p.ore_collected, GameState.alloy]
 
 	_update_compass(p)
 
+	# Status line priority: transient warning > recall prompt > hazard > overheat > hint.
 	var msg := "[A/D] move/dig   [S] dig down   [Space] jump / hold thrust   [Shift] dash"
 	if _return_available:
 		msg = "[E] RECALL TO HUB — smelt %d ore into alloy" % p.ore_collected
-	elif p.heat >= p.heat_max:
+	if String(p.active_hazard) != "" and HAZARD_WARN.has(p.active_hazard):
+		msg = HAZARD_WARN[p.active_hazard]
+	elif not _return_available and p.heat >= p.heat_max:
 		msg = "!! OVERHEAT — hull venting, drill locked until cooled !!"
 	if _warn_timer > 0.0:
 		msg = _warn_text
 	status.text = msg
+
+
+## A "NN%" readout, jittered into garbled digits while telemetry is scrambled.
+func _pct_readout(value: float, scramble: bool) -> String:
+	if scramble:
+		return "%d%%" % randi_range(0, 99)
+	return "%d%%" % int(round(value))
+
+
+## A depth readout, replaced by random digits during radiation interference.
+func _depth_readout(value: int, scramble: bool) -> String:
+	if scramble:
+		return str(randi_range(0, 9999))
+	return str(value)
+
+
+## Corrupt a label by randomly swapping some chars for glyphs — still legible
+## as "something was here", which reads as interference rather than a blackout.
+func _scramble_text(text: String, scramble: bool) -> String:
+	if not scramble:
+		return text
+	const GLITCH := "#%@*?0123456789"
+	var out := ""
+	for ch in text:
+		if ch != " " and randf() < 0.45:
+			out += GLITCH[randi() % GLITCH.length()]
+		else:
+			out += ch
+	return out

@@ -11,9 +11,19 @@ extends TileMapLayer
 
 const TILE_SIZE: int = 18
 const W: int = 96
-const H: int = 220
+# Surface at y=SURFACE_Y; diggable terrain reaches ~1000 m, then a few rows of
+# indestructible bedrock floor. 1000 m / 2.5 m-per-tile = 400 tiles below the
+# surface; +SURFACE_Y header +bedrock rows -> H = 415.
+const H: int = 415
 const SURFACE_Y: int = 10
 const METERS_PER_TILE: float = 2.5
+
+# Rows of indestructible bedrock at the very bottom (below the ~1000 m mark).
+const BEDROCK_ROWS: int = 3
+
+# --- Biome bands (GDD §5), expressed in METRES below the surface ---
+const CRUST_END_M := 500.0
+const MANTLE_END_M := 1000.0
 
 @export var world_seed: int = 0   # 0 = randomize each launch (rogue-lite)
 
@@ -49,11 +59,14 @@ var debris_container: Node = null
 var _source_ids: Array[int] = []
 var _id_to_index: Dictionary = {}
 var _block_hp: Dictionary = {}
-var _ore_cells: Dictionary = {}   # Vector2i -> true, for the ore compass
+var _ore_cells: Dictionary = {}      # Vector2i -> true, for the ore compass
+var _hazard_cells: Dictionary = {}   # Vector2i -> String ("gas"|"lava"|"radiation")
+var _bedrock_cells: Dictionary = {}  # Vector2i -> true, indestructible floor
 
 var _cave := FastNoiseLite.new()
 var _mat := FastNoiseLite.new()
 var _ore := FastNoiseLite.new()
+var _haz := FastNoiseLite.new()      # mantle hazard placement
 
 
 func _ready() -> void:
@@ -102,45 +115,90 @@ func _setup_noise() -> void:
 	_ore.seed = s + 2
 	_ore.frequency = 0.10
 
+	# Lower-frequency field for hazard regions so they cluster into blobs/runs.
+	_haz.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	_haz.seed = s + 3
+	_haz.frequency = 0.06
+
 
 func _generate() -> void:
+	var bedrock_top: int = H - BEDROCK_ROWS   # first indestructible row
 	for x in range(W):
 		for y in range(H):
-			if x == 0 or x == W - 1 or y == H - 1:
-				_place(x, y, ROCK)            # bordering walls + bedrock floor
+			var cell := Vector2i(x, y)
+
+			# Indestructible bedrock floor + side walls reaching down to it.
+			if y >= bedrock_top:
+				_place(x, y, BASALT)
+				_bedrock_cells[cell] = true
+				continue
+			if x == 0 or x == W - 1:
+				_place(x, y, ROCK)            # bordering walls
 				continue
 			if y < SURFACE_Y:
 				continue                      # open sky
 
-			# Keep the surface crust solid; carve caves only below it.
-			if y > SURFACE_Y + 3 and _cave.get_noise_2d(x, y) > CAVE_THRESHOLD:
-				continue                      # cave pocket (air)
+			var depth_m: float = float(y - SURFACE_Y) * METERS_PER_TILE
 
-			var idx := _material(x, y)
+			# Keep the surface crust solid; carve caves only below it.
+			# The Mantle's caves are larger/denser (lava tubes) -> lower threshold.
+			if y > SURFACE_Y + 3 and _cave.get_noise_2d(x, y) > _cave_threshold(depth_m):
+				_tag_hazard(cell, depth_m)    # cave pocket (air) — may be hazardous
+				continue
+
+			var idx := _material(x, y, depth_m)
 			_place(x, y, idx)
 			if idx == ORE:
-				_ore_cells[Vector2i(x, y)] = true
+				_ore_cells[cell] = true
 
 
-func _material(x: int, y: int) -> int:
+## Cave carving threshold by depth: lower threshold = more/larger open space.
+## The Mantle is riddled with lava tubes, so it opens up below the Crust.
+func _cave_threshold(depth_m: float) -> float:
+	if depth_m < CRUST_END_M:
+		return CAVE_THRESHOLD             # 0.40 — Crust feel
+	return 0.28                           # Mantle — denser, larger cavities
+
+
+func _material(x: int, y: int, depth_m: float) -> int:
 	var depth: int = y - SURFACE_Y
 
-	# Ore veins (not right at the surface).
-	if depth > 4 and _ore.get_noise_2d(x, y) > ORE_THRESHOLD:
+	# Ore veins throughout. Deeper veins are rarer (lower threshold harder to
+	# meet would mean MORE; we raise the bar with depth so deep ore is scarcer).
+	var ore_bar: float = ORE_THRESHOLD if depth_m < CRUST_END_M else ORE_THRESHOLD + 0.06
+	if depth > 4 and _ore.get_noise_2d(x, y) > ore_bar:
 		return ORE
 
 	var m: float = _mat.get_noise_2d(x, y)
 
-	if depth < 150:
-		# The Crust: dirt with rock veins.
+	if depth_m < CRUST_END_M:
+		# The Crust (0–500 m): dirt with rock veins.
 		return ROCK if m > 0.20 else DIRT
 	else:
-		# Transition toward the Mantle: rock, basalt, permafrost pockets.
-		if m > 0.40:
+		# The Mantle (500–1000 m): dense BASALT-dominant walls, with ROCK and
+		# scattered PERMAFROST pockets. Far more hostile than the Crust.
+		if m > -0.15:
 			return BASALT
-		if m < -0.50:
+		if m < -0.55:
 			return PERMAFROST
 		return ROCK
+
+
+## Tag an open Mantle cell with a hazard kind, if it falls in a hazard region.
+## Crust cells are never tagged. Regions are noise-driven so they cluster:
+##   - "lava"      : near-zero hazard noise -> horizontal-ish tube interiors
+##   - "gas"       : strongly positive hazard noise -> pocket clusters
+##   - "radiation" : strongly negative hazard noise -> regional blobs
+func _tag_hazard(cell: Vector2i, depth_m: float) -> void:
+	if depth_m < CRUST_END_M:
+		return                            # Crust is (near) hazard-free
+	var n: float = _haz.get_noise_2d(cell.x, cell.y)
+	if n > 0.45:
+		_hazard_cells[cell] = "gas"
+	elif n < -0.45:
+		_hazard_cells[cell] = "radiation"
+	elif absf(n) < 0.06:
+		_hazard_cells[cell] = "lava"
 
 
 func _place(x: int, y: int, index: int) -> void:
@@ -163,6 +221,8 @@ func get_block_def(cell: Vector2i) -> Dictionary:
 func dig(cell: Vector2i, damage: float) -> bool:
 	if not is_solid(cell):
 		return false
+	if _bedrock_cells.has(cell):
+		return false                      # indestructible bedrock floor
 	var def: Dictionary = get_block_def(cell)
 	var hp: float = _block_hp.get(cell, def["hardness"])
 	hp -= damage
@@ -256,6 +316,49 @@ func damaged_cells() -> Array:
 
 func get_start_position() -> Vector2:
 	return to_global(map_to_local(Vector2i(W / 2, SURFACE_Y - 2)))
+
+
+## Safe spawn at a given depth (metres) for the telemetry checkpoint. Carves a
+## ~3x3 clear air pocket at the chosen cell (erasing terrain + hazard tags) so
+## the rig spawns in open space, and returns that pocket's centre in world space.
+func get_start_position_at_depth(depth_m: float) -> Vector2:
+	var d: float = clampf(depth_m, 0.0, max_depth_meters())
+	var cy: int = SURFACE_Y + int(round(d / METERS_PER_TILE))
+	cy = clampi(cy, SURFACE_Y, H - BEDROCK_ROWS - 2)
+	var cx: int = W / 2
+
+	# Carve a 3x3 clear pocket centred on the cell (stay inside the walls/floor).
+	for ox in range(-1, 2):
+		for oy in range(-1, 2):
+			var c := Vector2i(clampi(cx + ox, 1, W - 2), clampi(cy + oy, SURFACE_Y, H - BEDROCK_ROWS - 1))
+			erase_cell(c)
+			_block_hp.erase(c)
+			_ore_cells.erase(c)
+			_hazard_cells.erase(c)
+
+	return to_global(map_to_local(Vector2i(cx, cy)))
+
+
+## Biome band for a depth in metres (GDD §5).
+func biome_at_depth(depth_m: float) -> String:
+	if depth_m < CRUST_END_M:
+		return "crust"
+	if depth_m < MANTLE_END_M:
+		return "mantle"
+	return "ruins"
+
+
+## Hazard kind at a world position: "" | "gas" | "lava" | "radiation".
+## "" for solid cells and non-hazard air. O(1) dict lookup — called every frame.
+func hazard_at(global_pos: Vector2) -> String:
+	var cell: Vector2i = local_to_map(to_local(global_pos))
+	return _hazard_cells.get(cell, "")
+
+
+## Deepest reachable depth in metres (bottom of the diggable terrain, i.e. just
+## above the indestructible bedrock floor).
+func max_depth_meters() -> float:
+	return float((H - BEDROCK_ROWS) - SURFACE_Y) * METERS_PER_TILE
 
 
 ## Depth in metres below the surface for a given world position.

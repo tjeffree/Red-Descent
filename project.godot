@@ -12,7 +12,7 @@ config_version=5
 
 config/name="Red Descent"
 config/description="2D procedural rogue-lite digging game. Phase 1: Grid & Movement."
-run/main_scene="res://scenes/hub.tscn"
+run/main_scene="res://scenes/main_menu.tscn"
 config/features=PackedStringArray("4.5", "Forward Plus")
 config/icon="res://icon.svg"
 

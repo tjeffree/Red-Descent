@@ -51,6 +51,16 @@ extends CharacterBody2D
 @export var ambient_cool: float = 16.0        ## heat/sec shed when not drilling
 @export var overheat_damage: float = 22.0     ## hull/sec while at max heat
 
+# --- Phase 6 hazards (GDD §4) ---
+@export var gas_corrosion: float = 9.0        ## hull/sec while standing in toxic gas
+@export var lava_heat: float = 38.0           ## heat/sec while in a lava tube (on top of drilling)
+
+# Pressure ramp: below the crust, depth multiplies energy drain and divides
+# drill output. At MANTLE_END_M+ the multiplier maxes out at 1 + PRESSURE_FACTOR.
+const CRUST_END_M: float = 500.0
+const MANTLE_END_M: float = 1000.0
+const PRESSURE_FACTOR: float = 0.9    ## extra fraction at full depth (≈1.9× energy, ≈0.53× dig)
+
 # --- Live state (read by the HUD) ---
 var heat: float = 0.0
 var energy: float = 130.0
@@ -61,9 +71,28 @@ var destroyed: bool = false
 var ore_collected: int = 0
 var current_depth: float = 0.0
 
+# Hazard state, read each frame by the HUD.
+var active_hazard: String = ""   # "" | "gas" | "lava" | "radiation"
+var in_radiation: bool = false   # telemetry-scramble flag (no stat damage)
+
 # Set from meta-upgrades on spawn (GameState).
-var dig_half_width: int = 0   # extra tiles cleared either side (Wide Auger)
+# Wide Auger digs a 2D swath: `dig_side` tiles cleared perpendicular to the dig
+# axis (wider shaft / taller tunnel) and `dig_reach` extra tiles along the axis
+# (deeper per pass / further into the wall). Shape per level — see AUGER_SHAPE.
+var dig_side: int = 1    # half-width perpendicular to the dig direction
+var dig_reach: int = 0   # extra tiles beyond the first, along the dig direction
 var compass_points: int = 1   # ore pings shown by the HUD (Seismic Scanner)
+
+# Per-auger-level (side, reach). Index 0 = no upgrade (L0); L1 keeps the
+# original 3-wide shaft (side=1, reach=0). Growth alternates wider/deeper.
+const AUGER_SHAPE: Array = [
+	Vector2i(0, 0),  # L0: just the target cell (1-wide shaft)
+	Vector2i(1, 0),  # L1: 3-wide shaft (original first stage)
+	Vector2i(1, 1),  # L2: 3-wide, one deeper
+	Vector2i(2, 1),  # L3: 5-wide, one deeper
+	Vector2i(2, 2),  # L4: 5-wide, two deeper
+	Vector2i(3, 2),  # L5: 7-wide, two deeper
+]
 
 # --- Internals ---
 var terrain: TileMapLayer
@@ -92,7 +121,9 @@ func _apply_upgrades() -> void:
 	drill_power += GameState.effect("drill")
 	ambient_cool += GameState.effect("cooling")
 	hull_max += GameState.effect("hull")
-	dig_half_width = int(GameState.effect("auger"))
+	var auger_lv: int = clampi(GameState.level("auger"), 0, AUGER_SHAPE.size() - 1)
+	dig_side = AUGER_SHAPE[auger_lv].x
+	dig_reach = AUGER_SHAPE[auger_lv].y
 	compass_points = 1 + int(GameState.effect("scanner"))
 
 
@@ -121,11 +152,43 @@ func _physics_process(delta: float) -> void:
 	_apply_jump()
 	_apply_thrusters(delta)
 	_apply_dash(delta)
+	_apply_hazards(delta)
 	_apply_digging(delta)
 	_update_resources(delta)
 
 	thruster_flame.visible = is_thrusting
 	move_and_slide()
+
+
+## Environmental pressure rises with depth below the crust: deeper = more
+## energy use and slower digging (GDD §4). Returns a multiplier in
+## [1.0 .. 1.0 + PRESSURE_FACTOR]; 1.0 throughout the crust.
+func _pressure() -> float:
+	if current_depth <= CRUST_END_M:
+		return 1.0
+	var t: float = clampf((current_depth - CRUST_END_M) / (MANTLE_END_M - CRUST_END_M), 0.0, 1.0)
+	return 1.0 + t * PRESSURE_FACTOR
+
+
+## Read the hazard under the rig and apply its effect. Gas corrodes the hull
+## (can kill), lava pumps heat (can push into overheat), radiation only flags
+## the HUD. `active_hazard`/`in_radiation` are refreshed for the HUD each frame.
+func _apply_hazards(delta: float) -> void:
+	active_hazard = ""
+	in_radiation = false
+	if terrain == null:
+		return
+	var h: String = terrain.hazard_at(global_position)
+	active_hazard = h
+	match h:
+		"gas":
+			hull = maxf(0.0, hull - gas_corrosion * delta)
+			if hull <= 0.0:
+				destroyed = true
+		"lava":
+			heat = minf(heat_max, heat + lava_heat * delta)
+		"radiation":
+			in_radiation = true
 
 
 func _apply_horizontal(dir: float, delta: float) -> void:
@@ -189,15 +252,24 @@ func _apply_digging(delta: float) -> void:
 	if def.is_empty():
 		return
 
-	var dmg: float = drill_power * delta
-	_dig_cell(target, dmg)
-	# Wide Auger: also clear the tiles flanking the target.
-	for i in range(1, dig_half_width + 1):
-		_dig_cell(target + Vector2i(i, 0), dmg)
-		_dig_cell(target + Vector2i(-i, 0), dmg)
+	# Pressure slows the drill: effective damage is divided by the depth multiplier.
+	var dmg: float = drill_power * delta / _pressure()
+	# Wide Auger: clear a swath whose shape depends on the dig direction.
+	#   `axis`  — the unit step in the dig direction (down/up/left/right).
+	#   `perp`  — the perpendicular unit step; `dig_side` tiles are cleared to
+	#             each side along it (wider shaft / taller tunnel).
+	#   `dig_reach` — extra cells dug further along `axis` (deeper / into wall).
+	var axis: Vector2i = _dig_axis(target)
+	var perp := Vector2i(axis.y, axis.x)   # 90° rotation of the axis vector
+	for r in range(0, dig_reach + 1):
+		var spine: Vector2i = target + axis * r
+		_dig_cell(spine, dmg)
+		for s in range(1, dig_side + 1):
+			_dig_cell(spine + perp * s, dmg)
+			_dig_cell(spine - perp * s, dmg)
 
 	heat += float(def["heat"]) * delta
-	energy = maxf(0.0, energy - dig_energy_cost * delta)
+	energy = maxf(0.0, energy - dig_energy_cost * delta * _pressure())
 	is_drilling = true
 
 
@@ -235,6 +307,17 @@ func _cell_at(offset: Vector2) -> Vector2i:
 	return terrain.local_to_map(terrain.to_local(global_position + offset))
 
 
+## The unit step pointing from the rig into the target cell, snapped to whichever
+## axis (vertical or horizontal) dominates. This is the direction the auger
+## "reaches" along; the swath widens perpendicular to it.
+func _dig_axis(target: Vector2i) -> Vector2i:
+	var here: Vector2i = _cell_at(Vector2.ZERO)
+	var d: Vector2i = target - here
+	if absi(d.y) >= absi(d.x):
+		return Vector2i(0, signi(d.y) if d.y != 0 else 1)   # vertical (default down)
+	return Vector2i(signi(d.x), 0)                          # horizontal
+
+
 ## Begin the recall ascent: thrusters fire and the rig rockets up to the surface
 ## (collision disabled so it zips straight up the shaft) for run-end feedback.
 func start_ascent() -> void:
@@ -264,11 +347,11 @@ func _update_resources(delta: float) -> void:
 	if heat >= heat_max:
 		hull = maxf(0.0, hull - overheat_damage * delta)
 
-	# Energy: life support + movement cost.
+	# Energy: life support + movement cost, both amplified by depth pressure.
 	var drain: float = idle_drain
 	if absf(velocity.x) > 5.0:
 		drain += move_drain
-	energy = maxf(0.0, energy - drain * delta)
+	energy = maxf(0.0, energy - drain * delta * _pressure())
 
 	if hull <= 0.0:
 		destroyed = true
