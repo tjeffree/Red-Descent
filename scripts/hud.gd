@@ -74,9 +74,10 @@ var powerup_box: Panel
 var powerup_style: StyleBoxFlat
 var powerup_title: Label
 var powerup_body: Label
+var powerup_effect: Label
 var _powerup_timer: float = 0.0
-const POWERUP_SHOW := 4.5
-const POWERUP_FADE := 1.2
+const POWERUP_SHOW := 7.5
+const POWERUP_FADE := 1.4
 
 # Active-boost readout — a stacked column of colour chips (top-right) showing the
 # powerups currently running and their countdowns. Rebuilt from the rig each frame.
@@ -292,8 +293,8 @@ void fragment() {
 	powerup_box.anchor_bottom = 0.5
 	powerup_box.offset_left = -300.0
 	powerup_box.offset_right = 300.0
-	powerup_box.offset_top = -150.0
-	powerup_box.offset_bottom = -40.0
+	powerup_box.offset_top = -185.0
+	powerup_box.offset_bottom = -35.0
 	powerup_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	powerup_style = StyleBoxFlat.new()
 	powerup_style.bg_color = Color(0.02, 0.05, 0.06, 0.92)
@@ -312,6 +313,7 @@ void fragment() {
 	pvbox.offset_top = 8.0
 	pvbox.offset_bottom = -8.0
 	pvbox.add_theme_constant_override("separation", 6)
+	pvbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	powerup_box.add_child(pvbox)
 
 	powerup_title = _make_label("", 20)
@@ -328,8 +330,14 @@ void fragment() {
 	powerup_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	powerup_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	powerup_body.add_theme_color_override("font_color", Color(0.9, 0.93, 0.95))
-	powerup_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	pvbox.add_child(powerup_body)
+
+	# Plain mechanical effect in brackets, beneath the flavour — the "what it
+	# actually does", accent-coloured so it reads as the practical takeaway.
+	powerup_effect = _make_label("", 15)
+	powerup_effect.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	powerup_effect.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	pvbox.add_child(powerup_effect)
 
 	# Active-boost readout — colour chips stacked top-right under the controller area.
 	boost_box = VBoxContainer.new()
@@ -450,6 +458,8 @@ func show_powerup(def: Dictionary) -> void:
 	powerup_title.text = String(def.get("flash", def.get("name", "")))
 	powerup_title.add_theme_color_override("font_color", col)
 	powerup_body.text = String(def.get("desc", ""))
+	powerup_effect.text = Powerups.effect_line(def)
+	powerup_effect.add_theme_color_override("font_color", col)
 	powerup_box.modulate.a = 1.0
 	powerup_box.visible = true
 	_powerup_timer = POWERUP_SHOW
