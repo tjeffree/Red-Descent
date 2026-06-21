@@ -21,6 +21,15 @@ const COL_MAXED := Color(0.55, 0.85, 0.6)
 const COL_POOR := Color(0.55, 0.55, 0.55)
 const COL_SEL := Color(1.0, 0.85, 0.3)
 
+# Controls legend: keyboard keys read as warm key-caps; gamepad shoulder/stick
+# cues read as cool chips (so they're clearly NOT the coloured face buttons).
+const COL_KEY_BG := Color(0.92, 0.80, 0.38)
+const COL_KEY_BORDER := Color(0.55, 0.42, 0.12)
+const COL_KEY_FG := Color(0.12, 0.07, 0.05)
+const COL_PAD_BG := Color(0.28, 0.32, 0.40)
+const COL_PAD_BORDER := Color(0.55, 0.62, 0.74)
+const COL_PAD_FG := Color(0.93, 0.96, 1.0)
+
 # Ship-repair tiles are laid out one-per-row in their own grid.
 const SHIP_COLS := 2
 const SHIP_TILE_SIZE := Vector2(330, 58)
@@ -78,7 +87,7 @@ func _ready() -> void:
 	ground.anchor_top = 1.0
 	ground.anchor_bottom = 1.0
 	ground.anchor_right = 1.0
-	ground.offset_top = -110.0
+	ground.offset_top = -120.0
 	ground.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(ground)
 
@@ -144,27 +153,24 @@ func _ready() -> void:
 	_launch_label.add_theme_color_override("font_color", COL_SEL)
 	box.add_child(_launch_label)
 
-	box.add_child(_spacer(4))
-	_msg = _label("", 15)
-	box.add_child(_msg)
-
+	# Status read-outs (last run + action feedback) live in the open right-hand
+	# comms column, NOT the bottom flow — that bottom strip is reserved for the
+	# controls legend, and flowing them there collides with it once they fill in.
 	if not GameState.last_run.is_empty():
 		var lr: Dictionary = GameState.last_run
 		var fate := "+%d alloy" % int(lr.get("ore", 0)) if lr.get("banked", false) else "ore lost"
-		box.add_child(_label("Last run: %s  ·  %d m  ·  %s" % [String(lr.get("reason", "")), int(lr.get("depth", 0)), fate], 15))
+		var lr_lbl := _label("Last run: %s  ·  %d m  ·  %s" % [String(lr.get("reason", "")), int(lr.get("depth", 0)), fate], 15)
+		lr_lbl.add_theme_color_override("font_color", COL_POOR)
+		lr_lbl.position = Vector2(772, 400)
+		layer.add_child(lr_lbl)
 
-	box.add_child(_spacer(4))
-	box.add_child(_label("[Arrows] select   [E] buy / repair   [Shift] launch depth   [Space] DESCEND   [S] ARCHIVE", 16))
+	_msg = _label("", 15)
+	_msg.position = Vector2(772, 432)
+	layer.add_child(_msg)
 
-	# Controller hints (face-button diamond) bottom-right.
-	var diamond := Control.new()
-	diamond.set_script(load("res://scripts/button_diamond.gd"))
-	diamond.position = Vector2(980, 590)
-	layer.add_child(diamond)
-	diamond.configure(_font, { "A": "Buy / Repair", "Y": "Descend", "B": "Launch depth (RB)", "X": "Archive (D-pad ↓)" })
-	var nav := _label("Stick / D-pad   select", 13)
-	nav.position = Vector2(980, 688)
-	layer.add_child(nav)
+	# Controls legend (keyboard left, gamepad right) — built absolutely along the
+	# bottom so it isn't pushed around by the flowing shop content above.
+	_build_controls()
 
 	# Start the launch selector on the saved depth (clamped to what's unlocked).
 	_launch_idx = _checkpoint_index(GameState.selected_start_m)
@@ -541,6 +547,82 @@ func _icon_scanner(icon: Control, r: Rect2, c: Color) -> void:
 	icon.draw_circle(ctr + Vector2(cos(deg_to_rad(215.0)), sin(deg_to_rad(215.0))) * (base * 1.7), 3.5, c)
 
 
+# --- Controls legend --------------------------------------------------------
+
+## Build the bottom controls legend: keyboard key-caps on the left (three
+## bindings per row, in aligned columns), gamepad cues on the right. Gamepad
+## face buttons use the position+colour diamond (no letters — they vary between
+## controllers); the shoulder / stick controls are listed as chips so they read
+## as distinct from the face buttons.
+func _build_controls() -> void:
+	var kb := GridContainer.new()
+	kb.columns = 6                       # chip, action, ×3 → three bindings/row
+	kb.add_theme_constant_override("h_separation", 8)
+	kb.add_theme_constant_override("v_separation", 8)
+	kb.position = Vector2(70, 656)
+	kb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_layer.add_child(kb)
+	for b in [["Arrows", "Select"], ["E", "Buy / Repair"], ["Shift", "Launch depth"],
+			["Space", "Descend"], ["S", "Archive"]]:
+		kb.add_child(_chip(b[0], COL_KEY_BG, COL_KEY_BORDER, COL_KEY_FG))
+		kb.add_child(_legend_action(b[1]))
+
+	# Gamepad: face buttons (A / Y) via the diamond.
+	var diamond := Control.new()
+	diamond.set_script(load("res://scripts/button_diamond.gd"))
+	diamond.position = Vector2(980, 572)
+	diamond.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_layer.add_child(diamond)
+	diamond.configure(_font, { "A": "Buy / Repair", "Y": "Descend" })
+
+	# Gamepad: shoulder buttons (RB / LB) — chips, NOT face-button colours.
+	var pad := GridContainer.new()
+	pad.columns = 2
+	pad.add_theme_constant_override("h_separation", 8)
+	pad.add_theme_constant_override("v_separation", 6)
+	pad.position = Vector2(980, 644)
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_layer.add_child(pad)
+	for b in [["RB", "Launch depth"], ["LB", "Archive"]]:
+		pad.add_child(_chip(b[0], COL_PAD_BG, COL_PAD_BORDER, COL_PAD_FG))
+		pad.add_child(_legend_action(b[1]))
+
+	var nav := _label("Stick / D-pad  ·  select", 13)
+	nav.add_theme_color_override("font_color", COL_POOR)
+	nav.position = Vector2(980, 700)
+	nav.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_layer.add_child(nav)
+
+
+## A rounded "cap" chip sized to its text (used for both key-caps and pad cues).
+func _chip(text: String, bg: Color, border: Color, fg: Color) -> Label:
+	var l := _label(text, 14)
+	l.add_theme_color_override("font_color", fg)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.set_corner_radius_all(5)
+	sb.set_border_width_all(2)
+	sb.border_color = border
+	sb.content_margin_left = 8
+	sb.content_margin_right = 8
+	sb.content_margin_top = 2
+	sb.content_margin_bottom = 2
+	l.add_theme_stylebox_override("normal", sb)
+	return l
+
+
+## A legend action label, vertically centred so it lines up with its chip.
+func _legend_action(text: String) -> Label:
+	var l := _label(text, 14)
+	l.add_theme_color_override("font_color", COL_TEXT)
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+
 func _label(text: String, size: int) -> Label:
 	var l := Label.new()
 	l.text = text
@@ -571,7 +653,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	# The "dig_down" action also binds the Down arrow / D-pad-down (= ui_down),
 	# which the hub uses to navigate. Treat it as the archive toggle ONLY when it
 	# is NOT simultaneously a navigation press, so down-navigation still works.
-	var toggle_archive := event.is_action_pressed("dig_down") and not event.is_action_pressed("ui_down")
+	# On a gamepad that rules out D-pad-down (it IS ui_down), so the archive lives
+	# on the Left Shoulder instead — the legend shows [LB] Archive.
+	var lb := event is InputEventJoypadButton and event.is_pressed() \
+		and (event as InputEventJoypadButton).button_index == JOY_BUTTON_LEFT_SHOULDER
+	var toggle_archive := lb or (event.is_action_pressed("dig_down") and not event.is_action_pressed("ui_down"))
 	if _archive_open:
 		if toggle_archive or event.is_action_pressed("ui_cancel"):
 			_set_archive(false)
@@ -695,10 +781,12 @@ func _present_earth_comm() -> void:
 		var quiet := _label(Lore.from_pool(Lore.AMBIENT_EARTH, fill), 14)
 		quiet.add_theme_color_override("font_color", COL_RELAY_HDR.darkened(0.35))
 		quiet.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		quiet.position = Vector2(742, 160)
+		quiet.position = Vector2(772, 160)
 		quiet.custom_minimum_size = Vector2(400, 0)
 		quiet.size = Vector2(400, 0)
 		_layer.add_child(quiet)
+		# Track it like the full relay panel so the archive overlay hides it too.
+		_relay_panel = quiet
 		return
 
 	# Cyan relay panel in the open right-hand column — distinct from the dark-red
@@ -706,7 +794,7 @@ func _present_earth_comm() -> void:
 	var pw := 400.0
 	var panel := Panel.new()
 	panel.custom_minimum_size = Vector2(pw, 0)
-	panel.position = Vector2(742.0, 150.0)
+	panel.position = Vector2(772.0, 150.0)
 	panel.size.x = pw
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sb := StyleBoxFlat.new()
