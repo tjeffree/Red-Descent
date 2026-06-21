@@ -77,8 +77,8 @@ signal cavein
 ## Emitted when a block takes a chunk of drill damage, for the floating damage
 ## numbers. `amount` is raw HP removed since the last popup for that cell; `fatal`
 ## is the killing blow. Drilling applies tiny fractional HP every frame, so the
-## damage is accumulated per cell (see DMG_TICK_HP) and only emitted in readable
-## chunks rather than once per frame.
+## damage is accumulated per cell and emitted on a fixed cadence (see
+## DMG_POPUP_INTERVAL_MS) rather than once per frame.
 signal block_hit(world_pos: Vector2, amount: float, fatal: bool)
 
 # Pop a damage number on a fixed cadence per cell (accumulating the HP dealt in
@@ -518,25 +518,32 @@ func dig(cell: Vector2i, damage: float) -> bool:
 		return false                      # Ruins Bulkhead — the drill won't bite
 	var hp: float = _block_hp.get(cell, def["hardness"])
 	hp -= damage
-	var accum: float = _dmg_accum.get(cell, 0.0) + damage
+	# Damage-number bookkeeping only matters when the feature is on; skip the
+	# per-cell dict churn and signal entirely when it's off (saves work per dug
+	# cell, multiplied by a wide auger).
+	var show_numbers: bool = GameState.damage_numbers
 	if hp <= 0.0:
 		erase_cell(cell)
 		_block_hp.erase(cell)
 		_ore_cells.erase(cell)
+		if show_numbers:
+			var accum: float = _dmg_accum.get(cell, 0.0) + damage
+			block_hit.emit(to_global(map_to_local(cell)), accum, true)   # killing blow always pops
 		_dmg_accum.erase(cell)
 		_dmg_last_ms.erase(cell)
-		block_hit.emit(to_global(map_to_local(cell)), accum, true)   # killing blow always pops
 		_try_cavein(cell)
 		return true
 	_block_hp[cell] = hp
-	var now: int = Time.get_ticks_msec()
-	if not _dmg_last_ms.has(cell):
-		_dmg_last_ms[cell] = now          # start the cadence clock on first contact
-	if now - int(_dmg_last_ms[cell]) >= DMG_POPUP_INTERVAL_MS:
-		block_hit.emit(to_global(map_to_local(cell)), accum, false)
-		accum = 0.0
-		_dmg_last_ms[cell] = now
-	_dmg_accum[cell] = accum
+	if show_numbers:
+		var accum: float = _dmg_accum.get(cell, 0.0) + damage
+		var now: int = Time.get_ticks_msec()
+		if not _dmg_last_ms.has(cell):
+			_dmg_last_ms[cell] = now          # start the cadence clock on first contact
+		if now - int(_dmg_last_ms[cell]) >= DMG_POPUP_INTERVAL_MS:
+			block_hit.emit(to_global(map_to_local(cell)), accum, false)
+			accum = 0.0
+			_dmg_last_ms[cell] = now
+		_dmg_accum[cell] = accum
 	return false
 
 

@@ -40,6 +40,8 @@ func _on_block_hit(world_pos: Vector2, amount: float, fatal: bool) -> void:
 	if n <= 0:
 		return
 
+	var text := str(n)
+	var size: int = 18 if fatal else 11
 	# Jitter the spawn so a rapid stream of ticks doesn't stack on one pixel, and
 	# launch up and slightly sideways for the WoW "scatter" feel.
 	var jitter := Vector2(randf_range(-7.0, 7.0), randf_range(-4.0, 4.0))
@@ -48,18 +50,23 @@ func _on_block_hit(world_pos: Vector2, amount: float, fatal: bool) -> void:
 		"vel": Vector2(randf_range(-36.0, 36.0), randf_range(-50.0, -34.0)),
 		"age": 0.0,
 		"life": 0.95 if fatal else 0.7,
-		"text": str(n),
-		"size": 18 if fatal else 11,
+		"text": text,
+		"size": size,
+		# Measure the text once here; _draw scales this by the pop-in factor rather
+		# than re-measuring every frame.
+		"base_w": _font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x,
 		"color": Color(1.0, 0.5, 0.2) if fatal else Color(1.0, 0.92, 0.45),
 	})
 	# Drop the oldest if we're over the cap (newest hits are the most relevant).
 	if _popups.size() > MAX_POPUPS:
-		_popups = _popups.slice(_popups.size() - MAX_POPUPS)
+		_popups.remove_at(0)
 
 
 func _process(delta: float) -> void:
 	if _popups.is_empty():
 		return
+	var dv := Vector2(0.0, GRAVITY * delta)   # same gravity step for every popup this frame
+	var drag := 1.0 - DRAG * delta
 	var i: int = _popups.size() - 1
 	while i >= 0:
 		var p: Dictionary = _popups[i]
@@ -68,8 +75,7 @@ func _process(delta: float) -> void:
 			_popups.remove_at(i)
 		else:
 			p["pos"] += p["vel"] * delta
-			p["vel"] += Vector2(0.0, GRAVITY) * delta
-			p["vel"] *= (1.0 - DRAG * delta)
+			p["vel"] = (p["vel"] + dv) * drag
 		i -= 1
 	queue_redraw()
 
@@ -87,8 +93,9 @@ func _draw() -> void:
 		col.a = alpha
 		var outline := Color(0.05, 0.02, 0.02, alpha)
 
-		# Centre the number on its position.
-		var w: float = _font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+		# Centre the number on its position (width measured once at spawn, scaled
+		# by the pop-in factor — avoids a font-metrics call per popup per frame).
+		var w: float = float(p["base_w"]) * grow
 		var origin: Vector2 = p["pos"] - Vector2(w * 0.5, 0.0)
 
 		# Cheap 4-way outline for legibility over busy terrain, then the fill.
