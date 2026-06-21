@@ -24,8 +24,9 @@ var _rows: Array[Label] = []
 var _menu_box: VBoxContainer
 var _settings_box: VBoxContainer
 var _settings_rows: Array[Label] = []
+var _dmg_row: Label                 # "DAMAGE NUMBERS  ON/OFF" toggle
 var _in_settings: bool = false
-var _settings_idx: int = 0
+var _settings_idx: int = 0          # 0..BUSES.size()-1 = audio bus; == BUSES.size() = damage toggle
 
 
 func _ready() -> void:
@@ -100,13 +101,19 @@ func _build_settings(layer: CanvasLayer) -> void:
 	layer.add_child(_settings_box)
 
 	_settings_box.add_child(_label("AUDIO", 64, Color(0.85, 0.18, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
-	_settings_box.add_child(_spacer(30))
+	_settings_box.add_child(_spacer(24))
 	for b in BUSES:
 		var r := _label("", 30, Color(0.95, 0.95, 0.95), HORIZONTAL_ALIGNMENT_CENTER)
 		_settings_rows.append(r)
 		_settings_box.add_child(r)
+	# Visuals — toggles navigated alongside the audio rows (one extra index).
+	_settings_box.add_child(_spacer(24))
+	_settings_box.add_child(_label("VISUALS", 64, Color(0.85, 0.18, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
+	_settings_box.add_child(_spacer(24))
+	_dmg_row = _label("", 30, Color(0.95, 0.95, 0.95), HORIZONTAL_ALIGNMENT_CENTER)
+	_settings_box.add_child(_dmg_row)
 	_settings_box.add_child(_spacer(30))
-	_settings_box.add_child(_label("[Up/Down] channel   [Left/Right] adjust   [Back/Esc] done", 16, Color(0.8, 0.72, 0.66), HORIZONTAL_ALIGNMENT_CENTER))
+	_settings_box.add_child(_label("[Up/Down] select   [Left/Right] adjust   [Back/Esc] done", 16, Color(0.8, 0.72, 0.66), HORIZONTAL_ALIGNMENT_CENTER))
 
 
 func _on_video_finished() -> void:
@@ -135,6 +142,12 @@ func _refresh_settings() -> void:
 		_settings_rows[i].text = "%s%-7s %s %3d%%" % [prefix, BUSES[i].to_upper(), bar, int(round(lin * 100.0))]
 		_settings_rows[i].add_theme_color_override("font_color",
 			Color(1.0, 0.85, 0.3) if i == _settings_idx else Color(0.95, 0.95, 0.95))
+
+	var dmg_sel: bool = _settings_idx == BUSES.size()
+	var prefix2 := "> " if dmg_sel else "   "
+	_dmg_row.text = "%sDAMAGE NUMBERS   %s" % [prefix2, "ON" if GameState.damage_numbers else "OFF"]
+	_dmg_row.add_theme_color_override("font_color",
+		Color(1.0, 0.85, 0.3) if dmg_sel else Color(0.95, 0.95, 0.95))
 
 
 func _label(text: String, size: int, col: Color, align: int) -> Label:
@@ -203,7 +216,7 @@ func _settings_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("interact") or event.is_action_pressed("jump"):
 		_close_settings()
 		return
-	var n := BUSES.size()
+	var n := BUSES.size() + 1   # audio buses + the damage-numbers toggle
 	if event.is_action_pressed("ui_down"):
 		_settings_idx = (_settings_idx + 1) % n
 		_refresh_settings()
@@ -218,10 +231,15 @@ func _settings_input(event: InputEvent) -> void:
 		_adjust(-0.1)
 
 
-## Nudge the selected bus volume, apply + persist, and click for feedback.
+## Nudge the selected setting. For an audio bus, change the volume; for the damage
+## -numbers toggle, flip it (either direction). Applies + persists, with a click.
 func _adjust(delta: float) -> void:
-	var bus: String = BUSES[_settings_idx]
-	var v: float = clampf(float(GameState.volumes.get(bus, 1.0)) + delta, 0.0, 1.0)
-	Audio.set_volume(bus, v)
+	if _settings_idx == BUSES.size():
+		GameState.damage_numbers = not GameState.damage_numbers
+		GameState.save_game()
+	else:
+		var bus: String = BUSES[_settings_idx]
+		var v: float = clampf(float(GameState.volumes.get(bus, 1.0)) + delta, 0.0, 1.0)
+		Audio.set_volume(bus, v)
 	_refresh_settings()
 	Audio.ui("focus")

@@ -74,8 +74,23 @@ const MAX_COLLAPSE := 3       # tiles that fall per cave-in (chain feel)
 const CAVEIN_WARN_DELAY := 0.5
 
 signal cavein
+## Emitted when a block takes a chunk of drill damage, for the floating damage
+## numbers. `amount` is raw HP removed since the last popup for that cell; `fatal`
+## is the killing blow. Drilling applies tiny fractional HP every frame, so the
+## damage is accumulated per cell (see DMG_TICK_HP) and only emitted in readable
+## chunks rather than once per frame.
+signal block_hit(world_pos: Vector2, amount: float, fatal: bool)
+
+# Pop a damage number on a fixed cadence per cell (accumulating the HP dealt in
+# between), rather than once a damage threshold is crossed. A time-based cadence
+# means every distinct drilling action registers a number — a damage threshold
+# instead made hard blocks skip every other hit (the per-hit damage landed just
+# under the bar, so it only crossed on alternating hits).
+const DMG_POPUP_INTERVAL_MS := 120
 
 var debris_container: Node = null
+var _dmg_accum: Dictionary = {}     # cell -> HP damage accumulated since the last popup
+var _dmg_last_ms: Dictionary = {}   # cell -> Time.get_ticks_msec() of the last popup
 
 var _source_ids: Array[int] = []
 var _id_to_index: Dictionary = {}
@@ -503,13 +518,25 @@ func dig(cell: Vector2i, damage: float) -> bool:
 		return false                      # Ruins Bulkhead — the drill won't bite
 	var hp: float = _block_hp.get(cell, def["hardness"])
 	hp -= damage
+	var accum: float = _dmg_accum.get(cell, 0.0) + damage
 	if hp <= 0.0:
 		erase_cell(cell)
 		_block_hp.erase(cell)
 		_ore_cells.erase(cell)
+		_dmg_accum.erase(cell)
+		_dmg_last_ms.erase(cell)
+		block_hit.emit(to_global(map_to_local(cell)), accum, true)   # killing blow always pops
 		_try_cavein(cell)
 		return true
 	_block_hp[cell] = hp
+	var now: int = Time.get_ticks_msec()
+	if not _dmg_last_ms.has(cell):
+		_dmg_last_ms[cell] = now          # start the cadence clock on first contact
+	if now - int(_dmg_last_ms[cell]) >= DMG_POPUP_INTERVAL_MS:
+		block_hit.emit(to_global(map_to_local(cell)), accum, false)
+		accum = 0.0
+		_dmg_last_ms[cell] = now
+	_dmg_accum[cell] = accum
 	return false
 
 

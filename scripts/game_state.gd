@@ -45,6 +45,10 @@ var escaped: bool = false                # completed the endgame at least once (
 # and applied to the buses by the Audio autoload.
 var volumes: Dictionary = {"Master": 0.9, "Music": 0.7, "SFX": 0.9, "UI": 0.8}
 
+# Show floating WoW/Overwatch-style damage numbers as blocks are drilled. A menu
+# toggle (some players find the constant stream of numbers distracting).
+var damage_numbers: bool = true
+
 
 func _ready() -> void:
 	load_game()
@@ -223,6 +227,7 @@ func save_game() -> void:
 		"collected_logs": collected_logs,
 		"escaped": escaped,
 		"volumes": volumes,
+		"damage_numbers": damage_numbers,
 	}))
 
 
@@ -266,3 +271,4 @@ func load_game() -> void:
 	if typeof(vol) == TYPE_DICTIONARY:
 		for k in vol:
 			volumes[k] = clampf(float(vol[k]), 0.0, 1.0)
+	damage_numbers = bool(data.get("damage_numbers", true))

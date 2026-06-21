@@ -33,6 +33,12 @@ Mirrors GDD "Prototype Development Phasing":
 Built on top of the five prototype phases:
 
 - **Ore compass** — HUD arrow(s) point to the nearest ore (`world.nearest_ores`).
+- **Floating damage numbers** — WoW/Overwatch-style numbers pop out of blocks as
+  they're drilled (`damage_numbers.gd`, a world-space sibling of Debris in the
+  dive). `world.dig()` accumulates fractional per-frame HP damage per cell and
+  emits `block_hit` in readable chunks (`DMG_TICK_HP`); the killing blow pops a
+  larger, brighter number. Toggleable via the menu **VISUALS → DAMAGE NUMBERS**
+  setting (`GameState.damage_numbers`, persisted).
 - **Hub upgrade shop** — spend Alloy on permanent upgrades, persisted in
   `GameState` (Battery, Drill, Cooling, Hull, **Wide Auger** = directional
   widening with 5 levels, **Seismic Scanner** = more compass pings). Applied in
