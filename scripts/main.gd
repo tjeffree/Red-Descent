@@ -30,6 +30,7 @@ const WRECKAGE_WIDTH := 410.0
 @onready var player: CharacterBody2D = $Player
 @onready var terrain: TileMapLayer = $Terrain
 @onready var debris: Node2D = $Debris
+@onready var damage_numbers: Node2D = $DamageNumbers
 @onready var hud: CanvasLayer = $HUD
 
 var _state: String = "diving"  # diving / ascending / ending
@@ -52,6 +53,7 @@ func _ready() -> void:
 	player.debris_container = debris
 	terrain.debris_container = debris
 	terrain.cavein.connect(_on_cavein)
+	damage_numbers.connect_terrain(terrain)
 
 	# Recall always rises to the TRUE surface, regardless of where we launched.
 	_surface_y = terrain.get_start_position().y
