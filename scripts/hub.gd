@@ -12,7 +12,7 @@ const RIG_TEX := "res://assets/kenney_pixel_platformer/Tiles/Characters/tile_000
 const DIVE_SCENE := "res://scenes/main.tscn"
 
 const GRID_COLS := 3
-const TILE_SIZE := Vector2(216, 132)
+const TILE_SIZE := Vector2(216, 118)
 const ICON_SIZE := 50.0
 
 # Palette (dark-red aesthetic, matching the dive/HUD).
@@ -38,6 +38,19 @@ var _ship_teaser: Label
 var _launch_label: Label
 var _launch_idx: int = 0             # index into available_checkpoints()
 
+# Phase 7: narrative — Earth-relay panel + archive overlay.
+var _layer: CanvasLayer
+var _archive: Control               # full-screen archive overlay (hidden by default)
+var _archive_open: bool = false
+var _relay_panel: Control           # the entry Earth-relay notice (if shown)
+
+# Relay panel palette (cyan/blue — distinct from the dark-red hub).
+const COL_RELAY_BG := Color(0.04, 0.10, 0.16, 0.96)
+const COL_RELAY_BORDER := Color(0.35, 0.75, 0.95, 1.0)
+const COL_RELAY_TEXT := Color(0.75, 0.92, 1.0)
+const COL_RELAY_HDR := Color(0.45, 0.85, 1.0)
+const COL_LOCKED := Color(0.40, 0.40, 0.42)
+
 
 func _n_upgrades() -> int:
 	return GameState.UPGRADES.size()
@@ -52,6 +65,7 @@ func _ready() -> void:
 
 	var layer := CanvasLayer.new()
 	add_child(layer)
+	_layer = layer
 
 	var bg := ColorRect.new()
 	bg.color = Color(0.09, 0.04, 0.035, 1.0)
@@ -81,7 +95,7 @@ func _ready() -> void:
 	box.add_theme_constant_override("separation", 4)
 	layer.add_child(box)
 
-	box.add_child(_label("THE WRECKAGE", 38))
+	box.add_child(_label("THE WRECKAGE", 32))
 	box.add_child(_label("Surface hub  ·  Mars", 16))
 	_alloy_label = _label("", 24)
 	box.add_child(_alloy_label)
@@ -130,8 +144,8 @@ func _ready() -> void:
 	_launch_label.add_theme_color_override("font_color", COL_SEL)
 	box.add_child(_launch_label)
 
-	box.add_child(_spacer(8))
-	_msg = _label("", 16)
+	box.add_child(_spacer(4))
+	_msg = _label("", 15)
 	box.add_child(_msg)
 
 	if not GameState.last_run.is_empty():
@@ -139,15 +153,15 @@ func _ready() -> void:
 		var fate := "+%d alloy" % int(lr.get("ore", 0)) if lr.get("banked", false) else "ore lost"
 		box.add_child(_label("Last run: %s  ·  %d m  ·  %s" % [String(lr.get("reason", "")), int(lr.get("depth", 0)), fate], 15))
 
-	box.add_child(_spacer(6))
-	box.add_child(_label("[Arrows] select   [E] buy / repair   [Shift] launch depth   [Space] DESCEND", 17))
+	box.add_child(_spacer(4))
+	box.add_child(_label("[Arrows] select   [E] buy / repair   [Shift] launch depth   [Space] DESCEND   [S] ARCHIVE", 16))
 
 	# Controller hints (face-button diamond) bottom-right.
 	var diamond := Control.new()
 	diamond.set_script(load("res://scripts/button_diamond.gd"))
 	diamond.position = Vector2(980, 590)
 	layer.add_child(diamond)
-	diamond.configure(_font, { "A": "Descend", "Y": "Buy / Repair", "B": "Launch depth (RB)" })
+	diamond.configure(_font, { "A": "Buy / Repair", "Y": "Descend", "B": "Launch depth (RB)", "X": "Archive (D-pad ↓)" })
 	var nav := _label("Stick / D-pad   select", 13)
 	nav.position = Vector2(980, 688)
 	layer.add_child(nav)
@@ -156,6 +170,10 @@ func _ready() -> void:
 	_launch_idx = _checkpoint_index(GameState.selected_start_m)
 
 	_refresh()
+
+	# --- Phase 7: narrative ---
+	_build_archive()                 # hidden full-screen log viewer
+	_present_earth_comm()            # one newly-unlocked Earth relay, if any
 
 
 ## Index of `depth` within available_checkpoints(), or the last entry if the
@@ -257,8 +275,11 @@ func _make_ship_tile(index: int) -> Panel:
 	name_lbl.name = "name"
 	col.add_child(name_lbl)
 
-	var stat_lbl := _label("", 13)
+	var stat_lbl := _label("", 11)
 	stat_lbl.name = "stat"
+	# Wrap within the tile so long descriptions don't spill past the box edge.
+	stat_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	stat_lbl.custom_minimum_size = Vector2(SHIP_TILE_SIZE.x - 64.0, 0)
 	col.add_child(stat_lbl)
 
 	tile.set_meta("icon", icon)
@@ -542,6 +563,35 @@ func _cur_cols() -> int:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	# Archive overlay: while open it captures input — toggle key + cancel close
+	# it, everything else is swallowed so the shop underneath stays inert.
+	# The "dig_down" action also binds the Down arrow / D-pad-down (= ui_down),
+	# which the hub uses to navigate. Treat it as the archive toggle ONLY when it
+	# is NOT simultaneously a navigation press, so down-navigation still works.
+	var toggle_archive := event.is_action_pressed("dig_down") and not event.is_action_pressed("ui_down")
+	if _archive_open:
+		if toggle_archive or event.is_action_pressed("ui_cancel"):
+			_set_archive(false)
+		get_viewport().set_input_as_handled()
+		return
+	if toggle_archive:
+		_set_archive(true)
+		get_viewport().set_input_as_handled()
+		return
+
+	# Gamepad face buttons are remapped IN THE HUB so BUY/REPAIR sits on the
+	# bottom button (A) and DESCEND on the top (Y) — the opposite of the global
+	# bindings, which keep jump on A for the dive. Consume the event so the
+	# action-based branches below (where A=jump, Y=interact) don't also fire.
+	if event is InputEventJoypadButton and event.pressed:
+		if event.button_index == JOY_BUTTON_A:        # bottom
+			_confirm_selection()
+			get_viewport().set_input_as_handled()
+			return
+		if event.button_index == JOY_BUTTON_Y:        # top
+			_launch_dive()
+			return
+
 	var total := _n_total()
 	if event.is_action_pressed("ui_right"):
 		_selected = (_selected + 1) % total
@@ -562,17 +612,28 @@ func _unhandled_input(event: InputEvent) -> void:
 		_launch_idx = (_launch_idx + 1) % cps.size()
 		_refresh_launch()
 	elif event.is_action_pressed("interact"):
-		if _on_ship():
-			_do_repair()
-		else:
-			_do_buy()
-		_refresh()
+		_confirm_selection()
 	elif event.is_action_pressed("jump"):
-		# Lock in the chosen launch depth for the dive, then descend.
-		var cps := GameState.available_checkpoints()
-		GameState.selected_start_m = float(cps[clampi(_launch_idx, 0, cps.size() - 1)])
-		GameState.save_game()
-		get_tree().change_scene_to_file(DIVE_SCENE)
+		_launch_dive()
+
+
+## Buy the selected upgrade or repair the selected ship part (keyboard E/Enter,
+## or the gamepad bottom face button in the hub).
+func _confirm_selection() -> void:
+	if _on_ship():
+		_do_repair()
+	else:
+		_do_buy()
+	_refresh()
+
+
+## Lock in the chosen launch depth, then descend (keyboard Space, or the gamepad
+## top face button in the hub).
+func _launch_dive() -> void:
+	var cps := GameState.available_checkpoints()
+	GameState.selected_start_m = float(cps[clampi(_launch_idx, 0, cps.size() - 1)])
+	GameState.save_game()
+	get_tree().change_scene_to_file(DIVE_SCENE)
 
 
 func _do_buy() -> void:
@@ -597,3 +658,202 @@ func _do_repair() -> void:
 		_msg.text = "%s is already repaired." % String(p["name"])
 	else:
 		_msg.text = "Not enough alloy."
+
+
+# --- Phase 7: Earth relay (occasional contact on entry) ---------------------
+
+## On hub entry, surface the first newly-unlocked Earth-relay message (if any)
+## as a prominent cyan/blue panel, then mark it seen so it shows only once. If
+## there is no new traffic, drop a subtle line instead of an empty panel.
+func _present_earth_comm() -> void:
+	# Templating values for Earth's lines (surface progress stats).
+	var fill := {
+		"deepest": int(GameState.best_depth),
+		"alloy": GameState.alloy,
+		"shippct": int(round(GameState.ship_progress() * 100.0)),
+	}
+	var comm := Lore.next_earth_comm()
+	if comm.is_empty():
+		# No new gated traffic — drop a bit of repeatable ambient chatter instead.
+		var quiet := _label(Lore.from_pool(Lore.AMBIENT_EARTH, fill), 14)
+		quiet.add_theme_color_override("font_color", COL_RELAY_HDR.darkened(0.35))
+		quiet.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		quiet.position = Vector2(742, 160)
+		quiet.custom_minimum_size = Vector2(400, 0)
+		quiet.size = Vector2(400, 0)
+		_layer.add_child(quiet)
+		return
+
+	# Cyan relay panel in the open right-hand column — distinct from the dark-red
+	# hub, and clear of the upgrade grid (which ends near x=740).
+	var pw := 400.0
+	var panel := Panel.new()
+	panel.custom_minimum_size = Vector2(pw, 0)
+	panel.position = Vector2(742.0, 150.0)
+	panel.size.x = pw
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = COL_RELAY_BG
+	sb.set_corner_radius_all(8)
+	sb.set_border_width_all(3)
+	sb.border_color = COL_RELAY_BORDER
+	sb.set_content_margin_all(16)
+	panel.add_theme_stylebox_override("panel", sb)
+	_layer.add_child(panel)
+	_relay_panel = panel
+
+	var col := VBoxContainer.new()
+	col.set_anchors_preset(Control.PRESET_FULL_RECT)
+	col.offset_left = 16
+	col.offset_top = 16
+	col.offset_right = -16
+	col.offset_bottom = -16
+	col.add_theme_constant_override("separation", 8)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(col)
+
+	var hdr := _label("◢  INCOMING — EARTH RELAY", 18)
+	hdr.add_theme_color_override("font_color", COL_RELAY_HDR)
+	col.add_child(hdr)
+
+	# Strip the "EARTH RELAY:" prefix so the panel header doesn't repeat it.
+	var text := Lore.line(comm, fill)
+	var pfx := "EARTH RELAY:"
+	if text.begins_with(pfx):
+		text = text.substr(pfx.length()).strip_edges()
+
+	var body := _label(text, 16)
+	body.add_theme_color_override("font_color", COL_RELAY_TEXT)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	body.custom_minimum_size = Vector2(pw - 32, 0)
+	col.add_child(body)
+
+	# Show once.
+	GameState.mark_transmission(String(comm["id"]))
+
+
+# --- Phase 7: Archive / log viewer ------------------------------------------
+
+## Build the (initially hidden) full-screen archive overlay shell once.
+func _build_archive() -> void:
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.visible = false
+	_layer.add_child(root)
+	_archive = root
+
+	var dim := ColorRect.new()
+	dim.color = Color(0.03, 0.015, 0.015, 1.0)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(dim)
+
+	var scroll := ScrollContainer.new()
+	scroll.name = "scroll"
+	scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	scroll.offset_left = 70
+	scroll.offset_top = 28
+	scroll.offset_right = -70
+	scroll.offset_bottom = -56
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root.add_child(scroll)
+
+	var content := VBoxContainer.new()
+	content.name = "content"
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_theme_constant_override("separation", 6)
+	scroll.add_child(content)
+
+	var hint := _label("[S] / [Esc]  close archive          ↑/↓ stick  scroll", 16)
+	hint.add_theme_color_override("font_color", COL_SEL)
+	hint.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	hint.position = Vector2(70, 696)
+	root.add_child(hint)
+
+
+## Open/close the archive overlay, rebuilding its content on open so it always
+## reflects the latest seen/collected state.
+func _set_archive(open: bool) -> void:
+	_archive_open = open
+	if open:
+		_rebuild_archive_content()
+	_archive.visible = open
+	# The entry relay notice would otherwise draw over the overlay (it is a later
+	# sibling); hide it while the archive is open.
+	if _relay_panel != null:
+		_relay_panel.visible = not open
+
+
+func _archive_section_header(text: String) -> Label:
+	var l := _label(text, 24)
+	l.add_theme_color_override("font_color", COL_SEL)
+	return l
+
+
+func _archive_body(text: String, col: Color) -> Label:
+	var l := _label(text, 16)
+	l.add_theme_color_override("font_color", col)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size = Vector2(1000, 0)
+	return l
+
+
+## Rebuild the three archive sections from GameState + Lore (read-only).
+func _rebuild_archive_content() -> void:
+	var content := _archive.get_node("scroll/content") as VBoxContainer
+	for child in content.get_children():
+		child.queue_free()
+
+	var title := _label("MISSION ARCHIVE", 34)
+	title.add_theme_color_override("font_color", COL_TEXT)
+	content.add_child(title)
+	content.add_child(_spacer(4))
+
+	# --- EARTH RELAY ---
+	var earth_seen := 0
+	for c in Lore.EARTH_COMMS:
+		if GameState.transmission_seen(String(c["id"])):
+			earth_seen += 1
+	content.add_child(_archive_section_header("EARTH RELAY   %d/%d" % [earth_seen, Lore.EARTH_COMMS.size()]))
+	if earth_seen == 0:
+		content.add_child(_archive_body("[NO CONTACT YET — keep digging]", COL_LOCKED))
+	else:
+		for c in Lore.EARTH_COMMS:
+			if GameState.transmission_seen(String(c["id"])):
+				var t := Lore.canonical(c)
+				var pfx := "EARTH RELAY:"
+				if t.begins_with(pfx):
+					t = t.substr(pfx.length()).strip_edges()
+				content.add_child(_archive_body("» " + t, COL_RELAY_TEXT))
+	content.add_child(_spacer(10))
+
+	# --- PILOT LOG ---
+	var pilot_seen := 0
+	for t in Lore.TRANSMISSIONS:
+		if GameState.transmission_seen(String(t["id"])):
+			pilot_seen += 1
+	content.add_child(_archive_section_header("PILOT LOG   %d/%d" % [pilot_seen, Lore.TRANSMISSIONS.size()]))
+	if pilot_seen == 0:
+		content.add_child(_archive_body("[NO ENTRIES — dive to record telemetry]", COL_LOCKED))
+	else:
+		for t in Lore.TRANSMISSIONS:
+			if GameState.transmission_seen(String(t["id"])):
+				content.add_child(_archive_body("» " + Lore.canonical(t), COL_TEXT))
+	content.add_child(_spacer(10))
+
+	# --- DATA LOGS (locked ones shown dimmed/encrypted) ---
+	var logs_found := 0
+	for l in Lore.DATA_LOGS:
+		if GameState.log_collected(String(l["id"])):
+			logs_found += 1
+	content.add_child(_archive_section_header("DATA LOGS   %d/%d" % [logs_found, Lore.DATA_LOGS.size()]))
+	for l in Lore.DATA_LOGS:
+		if GameState.log_collected(String(l["id"])):
+			var head := _label("◈ " + String(l["title"]), 18)
+			head.add_theme_color_override("font_color", COL_MAXED)
+			content.add_child(head)
+			content.add_child(_archive_body(String(l["text"]), COL_TEXT))
+		else:
+			content.add_child(_archive_body("◈ [ENCRYPTED — dig deeper]", COL_LOCKED))
+		content.add_child(_spacer(4))

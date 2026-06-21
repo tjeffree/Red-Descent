@@ -8,6 +8,8 @@ extends Node2D
 const FONT_PATH := "res://assets/kenney_ui_pack_scifi/Font/Kenney Future Narrow.ttf"
 const VIDEO_PATH := "res://assets/video/red-descent-intro.ogv"
 const HUB_SCENE := "res://scenes/hub.tscn"
+## Loops after the first restart this far in, skipping the intro lead-in.
+const LOOP_START := 2.0
 
 var _font: FontFile
 var _video: VideoStreamPlayer
@@ -22,9 +24,8 @@ func _ready() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
 
-	# Full-screen video background: plays once, then holds on its last frame
-	# (see _process — we pause just shy of the end so the final frame stays up;
-	# letting it finish outright would blank the texture).
+	# Full-screen video background: the first pass plays in full; every loop after
+	# that restarts LOOP_START seconds in, skipping the intro lead-in (see _on_video_finished).
 	_video = VideoStreamPlayer.new()
 	_video.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_video.expand = true
@@ -33,8 +34,7 @@ func _ready() -> void:
 	_video.loop = false
 	_video.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(_video)
-	# Fallback if we miss the tail in _process: hold the frame rather than clear.
-	_video.finished.connect(func() -> void: _video.paused = true)
+	_video.finished.connect(_on_video_finished)
 	_video.play()
 
 	# Dark-red overlay for legibility over the video.
@@ -76,12 +76,10 @@ func _ready() -> void:
 	_refresh()
 
 
-func _process(_delta: float) -> void:
-	# Freeze on the last frame: once playback nears the end, pause to hold it.
-	if _video.is_playing() and not _video.paused:
-		var len := _video.get_stream_length()
-		if len > 0.0 and _video.get_stream_position() >= len - 0.1:
-			_video.paused = true
+func _on_video_finished() -> void:
+	# Restart and skip past the intro lead-in so loops feel continuous.
+	_video.play()
+	_video.set_stream_position(LOOP_START)
 
 
 func _refresh() -> void:

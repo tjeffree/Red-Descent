@@ -52,8 +52,8 @@ sacrifice of the upgraded rig.
 | Phase | Description | Status |
 |---|---|---|
 | 6 | **The Mantle & the long-term spine** — deeper world, real biome bands, Mantle hazards, ship-repair track, telemetry-beacon checkpoint | **Done & verified** (see below; all scenes load clean in 4.5.1) |
-| 7 | **Telemetry / narrative beats** — depth- & event-triggered radio logs + buried data logs foreshadowing the Ruins; hub log viewer | Planned |
-| 8 | **The Ruins** — rigid chunk-based dungeon gen below 1000 m (90° architecture, indestructible bulkheads, neon, cold palette); paradigm-shift drill uses; the silo Discovery | Planned |
+| 7 | **Telemetry / narrative beats** — pilot-log transmissions, buried data logs, Earth-relay contact, hub archive | **Done & verified** (see below; all scenes load clean in 4.5.1) |
+| 8 | **The Ruins** — rigid architecture below 1000 m (indestructible bulkheads, drillable vault doors, cold palette, guaranteed grand shaft); the silo Discovery beat | **Done & verified** (see below; all scenes load clean in 4.5.1) |
 | 9 | **Climax & Endgame** — dock the rig, transfer power (drains meta-upgrades), 60 s lockdown collapse-survival, watch the rig crushed, launch to Earth | Planned |
 
 ### Phase 6 — implemented (The Mantle)
@@ -72,7 +72,56 @@ sacrifice of the upgraded rig.
   telemetry** (gauge %/depth/biome readouts garble while true bar values persist).
 - **Dive** (`main.gd`): start-at-depth from the chosen checkpoint (recall still rises to
   the true surface); biome-transition banners ("ENTERING THE MANTLE …") seed the §7 narration.
+- **Surface ship** (`main.gd` → `_place_wreckage`/`_wreckage_stage`): the mother ship rests on
+  the surface crust over the descent column (`z_index=-5`, behind the rig — the dive reads as
+  launching from it). Four repair-stage sprites (`assets/generated/wreckage-0..3.png`, masked from
+  the user illustrations via `_tools/make_wreckage.py` on one hull-aligned crop) are swapped by
+  `GameState.repaired_count()`: 0 = crashed wreck … 3 = fully repaired (legs/thrusters), stage 3
+  reserved for `ship_complete()`. So buying ship parts in the hub visibly rebuilds the surface ship.
 - **Meta spine** (`game_state.gd` + `hub.gd`): `SHIP_PARTS` repair track (spend Alloy on
   Hull Seal/Comms/Nav/Drive; `ship_progress()`/`ship_complete()` with a teaser line) and a
   **telemetry-beacon launch-depth selector** (`available_checkpoints()` unlocks each 250 m
   milestone reached; `selected_start_m` persisted). Old saves load with safe defaults.
+
+### Phase 7 — implemented (Telemetry & narrative)
+
+All narrative content lives in the new stateless **`Lore`** autoload (`scripts/lore.gd`);
+"seen"/"collected" flags persist in `GameState` (`seen_transmissions`, `collected_logs`).
+Three channels narrate the descent and seed the Act 3 reveal — the pilot thinks they're
+repairing a ship home to Earth while Earth grows baffled by what's buried beneath them:
+
+- **Pilot-log transmissions** (`main.gd` → `hud.show_transmission`): fired once each when a
+  depth/biome/hazard/`cavein` trigger is met (`Lore.fires`), shown as a lower-centre subtitle,
+  gated so beats don't stack. Plus repeatable **ambient pilot chatter** between beats.
+- **Buried data logs** (`world.gd` places markers in their depth bands; `try_collect_log()`;
+  `main.gd` → `hud.show_data_log`): dug up mid-dive, revealing the terraformers' story.
+- **Earth-relay contact** (`hub.gd` → `Lore.next_earth_comm`): one progress-gated message per
+  hub visit (gated on best depth / logs found / ship complete), drifting from reassurance into
+  intrigue; **ambient Earth small-talk** fills quiet visits. A full **Archive** overlay
+  (`dig_down` / S) rereads Earth comms, pilot logs, and data logs (undiscovered ones dimmed).
+- **Bake-time variety**: every beat carries a `variants` pool; `Lore.line(entry, ctx)` picks one
+  at random and fills templating tokens (`{depth}`/`{ore}`/`{hull}`/`{deepest}`/`{alloy}`/`{shippct}`)
+  from live run stats, so messages feel fresh across runs without any embedded model. The hub
+  archive shows `Lore.canonical()` (variant 0) so the official record stays consistent.
+
+### Phase 8 — implemented (The Ruins)
+
+All in `world.gd` (plus one Ruins lore beat). The world now extends past the Mantle into a
+**Ruins band (1000–1300 m)**, `H` raised to 533; `max_depth_meters()` = 1300.
+
+- **Tiles**: two new `BLOCKS` reuse existing textures with `TileData.modulate` for a cold/metallic
+  look — **Bulkhead** (cold steel, `indestructible: true` — `dig()` refuses it) and **Vault**
+  (rusted amber, drillable, hardness 4 — the "rusted vault doors" the drill chews through).
+- **Generation**: the Ruins band is filled solid with Bulkhead, then `_carve_ruins()` cuts the
+  rigid architecture — a drillable **vault lid** across the top (the rig must breach it), a 2-row
+  open **entry gallery** beneath it (so any breach point drops you into open space), a
+  **guaranteed meandering grand shaft** to the bedrock floor (`_shaft_cx` per row — the descent
+  path despite indestructible walls; navigated with thrusters/falls), and **side rooms** behind
+  vault doors. Verified: vault lid 94/94, gallery 94/94 open, shaft 117/117 rows open (continuous),
+  1200 m checkpoint spawns in the open shaft.
+- **Safety**: `dig()` and `_try_cavein()` respect `indestructible` (the Ruins never cave in);
+  `get_start_position_at_depth()` snaps deep checkpoints to the shaft; data logs stay in the
+  diggable Crust/Mantle (never sealed inside the Ruins).
+- **Discovery beat** (`lore.gd`): a `t_ruins` pilot transmission fires on entering the biome
+  ("I'm inside it… this is a structure"), atop the existing `t_deep` (985 m) line and the Ruins
+  biome banner. Sets up the Phase 9 silo/capsule climax.

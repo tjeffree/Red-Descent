@@ -94,8 +94,13 @@ const AUGER_SHAPE: Array = [
 	Vector2i(3, 2),  # L5: 7-wide, two deeper
 ]
 
+# --- Drill (cave-in debris) ---
+@export var debris_drill_range: float = 22.0  ## px from the rig a chunk must be within to drill
+@export var debris_drill_heat: float = 12.0   ## heat/sec while grinding a chunk
+
 # --- Internals ---
 var terrain: TileMapLayer
+var debris_container: Node2D = null   # set by main.gd; holds cave-in debris chunks
 var _ascending: bool = false
 var _ascent_speed: float = 0.0
 var thruster_charge: float = 0.9
@@ -241,7 +246,14 @@ func _apply_dash(delta: float) -> void:
 
 func _apply_digging(delta: float) -> void:
 	is_drilling = false
-	if terrain == null or energy <= 0.0 or heat >= heat_max:
+	if energy <= 0.0 or heat >= heat_max:
+		return
+
+	# Cave-in debris can be drilled apart too, so a fallen chunk never traps the
+	# rig waiting for it to despawn. Runs regardless of terrain underfoot.
+	_dig_debris(delta)
+
+	if terrain == null:
 		return
 
 	var target = _get_dig_target()
@@ -269,6 +281,33 @@ func _apply_digging(delta: float) -> void:
 			_dig_cell(spine - perp * s, dmg)
 
 	heat += float(def["heat"]) * delta
+	energy = maxf(0.0, energy - dig_energy_cost * delta * _pressure())
+	is_drilling = true
+
+
+## Grind down the nearest cave-in chunk within reach while a dig direction is
+## held — direction-agnostic, so a chunk that landed on the rig clears too.
+func _dig_debris(delta: float) -> void:
+	if debris_container == null:
+		return
+	if not (Input.is_action_pressed("dig_down") or Input.is_action_pressed("thrust") \
+			or Input.is_action_pressed("move_left") or Input.is_action_pressed("move_right")):
+		return
+
+	var closest: Node = null
+	var best: float = debris_drill_range
+	for d in debris_container.get_children():
+		if not d.has_method("dig"):
+			continue
+		var dist: float = global_position.distance_to(d.global_position)
+		if dist < best:
+			best = dist
+			closest = d
+	if closest == null:
+		return
+
+	closest.dig(drill_power * delta / _pressure())
+	heat = minf(heat_max, heat + debris_drill_heat * delta)
 	energy = maxf(0.0, energy - dig_energy_cost * delta * _pressure())
 	is_drilling = true
 

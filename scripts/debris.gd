@@ -2,16 +2,19 @@ extends RigidBody2D
 ## Red Descent — Cave-in debris (Phase 5)
 ##
 ## A physics chunk dropped when a ceiling collapses. Falls under gravity, collides
-## with terrain and the rig, and damages the rig on impact (GDD §4). Despawns
-## after a short lifetime so debris doesn't accumulate forever.
+## with terrain and the rig, and damages the rig on impact (GDD §4). The rig can
+## drill a chunk apart (so it isn't left waiting for blockers to vanish), and it
+## also despawns on its own after a short lifetime so debris never piles up.
 
 @export var damage: float = 12.0
-@export var lifetime: float = 6.0
+@export var lifetime: float = 2.5
+@export var drill_hp: float = 0.5   ## seconds of drilling (at drill_power 1.0) to break
 
 var _tex: Texture2D
 var _spawn_pos: Vector2
 var _spawn_vel: Vector2 = Vector2.ZERO
-var _life: float = 6.0
+var _life: float = 2.5
+var _hp: float = 0.5
 var _cooldown: float = 0.0
 
 
@@ -27,7 +30,17 @@ func _ready() -> void:
 	linear_velocity = _spawn_vel
 	$Sprite2D.texture = _tex
 	_life = lifetime
+	_hp = drill_hp
 	body_entered.connect(_on_body_entered)
+
+
+## Drilled by the rig. Returns true (and despawns) once the chunk is broken up.
+func dig(amount: float) -> bool:
+	_hp -= amount
+	if _hp <= 0.0:
+		queue_free()
+		return true
+	return false
 
 
 func _physics_process(delta: float) -> void:

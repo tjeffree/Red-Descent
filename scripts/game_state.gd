@@ -37,6 +37,8 @@ var last_run: Dictionary = {}
 var levels: Dictionary = {}   # upgrade id -> level (int)
 var ship_repaired: Dictionary = {}   # ship part id -> bool
 var selected_start_m: float = 0.0    # chosen launch depth (0 = Surface)
+var seen_transmissions: Dictionary = {}  # Lore transmission id -> true (Phase 7)
+var collected_logs: Dictionary = {}      # Lore data-log id -> true (Phase 7)
 
 
 func _ready() -> void:
@@ -123,15 +125,20 @@ func repair(id: String) -> bool:
 	return true
 
 
-## Fraction of ship parts repaired, 0..1.
-func ship_progress() -> float:
-	if SHIP_PARTS.is_empty():
-		return 0.0
+## Number of ship parts repaired so far.
+func repaired_count() -> int:
 	var done := 0
 	for p in SHIP_PARTS:
 		if part_repaired(p["id"]):
 			done += 1
-	return float(done) / float(SHIP_PARTS.size())
+	return done
+
+
+## Fraction of ship parts repaired, 0..1.
+func ship_progress() -> float:
+	if SHIP_PARTS.is_empty():
+		return 0.0
+	return float(repaired_count()) / float(SHIP_PARTS.size())
 
 
 func ship_complete() -> bool:
@@ -151,6 +158,28 @@ func available_checkpoints() -> Array:
 	for i in range(1, count + 1):
 		out.append(float(i) * CHECKPOINT_STEP)
 	return out
+
+
+# --- Lore: transmissions heard + data logs collected (Phase 7) ---
+
+func transmission_seen(id: String) -> bool:
+	return bool(seen_transmissions.get(id, false))
+
+
+func mark_transmission(id: String) -> void:
+	if not transmission_seen(id):
+		seen_transmissions[id] = true
+		save_game()
+
+
+func log_collected(id: String) -> bool:
+	return bool(collected_logs.get(id, false))
+
+
+func collect_log(id: String) -> void:
+	if not log_collected(id):
+		collected_logs[id] = true
+		save_game()
 
 
 # --- Runs ---
@@ -175,6 +204,8 @@ func save_game() -> void:
 		"levels": levels,
 		"ship_repaired": ship_repaired,
 		"selected_start_m": selected_start_m,
+		"seen_transmissions": seen_transmissions,
+		"collected_logs": collected_logs,
 	}))
 
 
@@ -201,3 +232,14 @@ func load_game() -> void:
 		for k in sr:
 			ship_repaired[k] = bool(sr[k])
 	selected_start_m = float(data.get("selected_start_m", 0.0))
+	# Phase 7 lore flags — safe defaults for older saves.
+	seen_transmissions = {}
+	var st: Variant = data.get("seen_transmissions", {})
+	if typeof(st) == TYPE_DICTIONARY:
+		for k in st:
+			seen_transmissions[k] = bool(st[k])
+	collected_logs = {}
+	var cl: Variant = data.get("collected_logs", {})
+	if typeof(cl) == TYPE_DICTIONARY:
+		for k in cl:
+			collected_logs[k] = bool(cl[k])

@@ -29,6 +29,21 @@ var _return_available: bool = false
 var _warn_text: String = ""
 var _warn_timer: float = 0.0
 
+# Pilot-log subtitle (transmissions) — lower-centre, above the compass.
+var transmission_box: Panel
+var transmission_label: Label
+var _transmission_timer: float = 0.0
+const TRANSMISSION_SHOW := 5.0    # seconds visible before it fades
+const TRANSMISSION_FADE := 1.2    # of which the tail is a fade-out
+
+# Data-log recovered popup — prominent framed banner, upper-centre.
+var datalog_box: Panel
+var datalog_title: Label
+var datalog_body: Label
+var _datalog_timer: float = 0.0
+const DATALOG_SHOW := 6.0
+const DATALOG_FADE := 1.5
+
 # Biome internal id → HUD display name.
 const BIOME_NAMES := {
 	"crust": "THE CRUST",
@@ -127,6 +142,80 @@ func _ready() -> void:
 	dash_hint.position = Vector2(1018, 688)
 	root.add_child(dash_hint)
 
+	# Pilot-log subtitle — lower-centre, above the ore compass. Distinct from the
+	# red HAZARD flash: a calm, narrow caption box that fades after a few seconds.
+	transmission_box = Panel.new()
+	transmission_box.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	transmission_box.anchor_left = 0.5
+	transmission_box.anchor_right = 0.5
+	transmission_box.offset_left = -360.0
+	transmission_box.offset_right = 360.0
+	transmission_box.offset_top = -150.0
+	transmission_box.offset_bottom = -86.0
+	transmission_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var tbg := StyleBoxFlat.new()
+	tbg.bg_color = Color(0.02, 0.04, 0.06, 0.74)
+	tbg.border_color = Color(0.35, 0.85, 1.0, 0.7)
+	tbg.set_border_width_all(0)
+	tbg.border_width_left = 4
+	tbg.set_corner_radius_all(3)
+	tbg.set_content_margin_all(8)
+	transmission_box.add_theme_stylebox_override("panel", tbg)
+	transmission_box.visible = false
+	root.add_child(transmission_box)
+
+	transmission_label = _make_label("", 15)
+	transmission_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	transmission_label.offset_left = 12.0
+	transmission_label.offset_right = -12.0
+	transmission_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	transmission_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	transmission_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	transmission_label.add_theme_color_override("font_color", Color(0.78, 0.92, 1.0))
+	transmission_box.add_child(transmission_label)
+
+	# Data-log recovered popup — prominent framed banner, upper-centre.
+	datalog_box = Panel.new()
+	datalog_box.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	datalog_box.anchor_left = 0.5
+	datalog_box.anchor_right = 0.5
+	datalog_box.offset_left = -340.0
+	datalog_box.offset_right = 340.0
+	datalog_box.offset_top = 70.0
+	datalog_box.offset_bottom = 196.0
+	datalog_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var dbg := StyleBoxFlat.new()
+	dbg.bg_color = Color(0.06, 0.05, 0.01, 0.9)
+	dbg.border_color = Color(1.0, 0.82, 0.3, 0.95)
+	dbg.set_border_width_all(3)
+	dbg.set_corner_radius_all(4)
+	dbg.set_content_margin_all(12)
+	datalog_box.add_theme_stylebox_override("panel", dbg)
+	datalog_box.visible = false
+	root.add_child(datalog_box)
+
+	var dvbox := VBoxContainer.new()
+	dvbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dvbox.offset_left = 16.0
+	dvbox.offset_right = -16.0
+	dvbox.offset_top = 10.0
+	dvbox.offset_bottom = -10.0
+	dvbox.add_theme_constant_override("separation", 8)
+	datalog_box.add_child(dvbox)
+
+	datalog_title = _make_label("", 18)
+	datalog_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	datalog_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	datalog_title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.4))
+	dvbox.add_child(datalog_title)
+
+	datalog_body = _make_label("", 14)
+	datalog_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	datalog_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	datalog_body.add_theme_color_override("font_color", Color(0.92, 0.9, 0.82))
+	datalog_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	dvbox.add_child(datalog_body)
+
 
 func set_return_available(v: bool) -> void:
 	_return_available = v
@@ -167,9 +256,48 @@ func flash(text: String) -> void:
 	_warn_timer = 1.4
 
 
+## Pilot's-log subtitle (a transmission). Lower-centre caption that fades out.
+func show_transmission(text: String) -> void:
+	transmission_label.text = "▶ PILOT LOG\n" + text
+	transmission_box.modulate.a = 1.0
+	transmission_box.visible = true
+	_transmission_timer = TRANSMISSION_SHOW
+
+
+## True while a transmission subtitle is still on screen — lets the dive gate
+## new beats so they don't stack on top of one another.
+func transmission_busy() -> bool:
+	return _transmission_timer > 0.0
+
+
+## Recovered data-log popup. Prominent framed banner, upper-centre, then fades.
+func show_data_log(log: Dictionary) -> void:
+	if log.is_empty():
+		return
+	datalog_title.text = "DATA LOG RECOVERED — %s" % String(log.get("title", ""))
+	datalog_body.text = String(log.get("text", ""))
+	datalog_box.modulate.a = 1.0
+	datalog_box.visible = true
+	_datalog_timer = DATALOG_SHOW
+
+
 func _process(delta: float) -> void:
 	if _warn_timer > 0.0:
 		_warn_timer -= delta
+
+	if _transmission_timer > 0.0:
+		_transmission_timer -= delta
+		if _transmission_timer <= 0.0:
+			transmission_box.visible = false
+		elif _transmission_timer < TRANSMISSION_FADE:
+			transmission_box.modulate.a = _transmission_timer / TRANSMISSION_FADE
+
+	if _datalog_timer > 0.0:
+		_datalog_timer -= delta
+		if _datalog_timer <= 0.0:
+			datalog_box.visible = false
+		elif _datalog_timer < DATALOG_FADE:
+			datalog_box.modulate.a = _datalog_timer / DATALOG_FADE
 
 
 func _make_label(text: String, size: int) -> Label:
