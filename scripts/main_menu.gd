@@ -5,8 +5,10 @@ extends Node2D
 ## behind the title and a simple vertical selector.
 ##   [Up/Down] select    [E]/[Enter]/[Space] confirm
 ##
-## SETTINGS opens an in-place audio mixer (Master/Music/SFX/UI), adjusted with
-## Left/Right and persisted through GameState via the Audio autoload.
+## SETTINGS opens an in-place panel: an audio mixer (Master/Music/SFX/UI) plus
+## VISUALS toggles (damage numbers, fullscreen), adjusted with Left/Right and
+## persisted through GameState. Fullscreen also has global F11 / Alt+Enter
+## hotkeys (handled in GameState).
 
 const FONT_PATH := "res://assets/kenney_ui_pack_scifi/Font/Kenney Future Narrow.ttf"
 const VIDEO_PATH := "res://assets/video/red-descent-intro.ogv"
@@ -25,8 +27,10 @@ var _menu_box: VBoxContainer
 var _settings_box: VBoxContainer
 var _settings_rows: Array[Label] = []
 var _dmg_row: Label                 # "DAMAGE NUMBERS  ON/OFF" toggle
+var _full_row: Label                # "FULLSCREEN  ON/OFF" toggle
 var _in_settings: bool = false
-var _settings_idx: int = 0          # 0..BUSES.size()-1 = audio bus; == BUSES.size() = damage toggle
+# 0..BUSES.size()-1 = audio bus; BUSES.size() = damage toggle; +1 = fullscreen.
+var _settings_idx: int = 0
 
 
 func _ready() -> void:
@@ -112,6 +116,8 @@ func _build_settings(layer: CanvasLayer) -> void:
 	_settings_box.add_child(_spacer(24))
 	_dmg_row = _label("", 30, Color(0.95, 0.95, 0.95), HORIZONTAL_ALIGNMENT_CENTER)
 	_settings_box.add_child(_dmg_row)
+	_full_row = _label("", 30, Color(0.95, 0.95, 0.95), HORIZONTAL_ALIGNMENT_CENTER)
+	_settings_box.add_child(_full_row)
 	_settings_box.add_child(_spacer(30))
 	_settings_box.add_child(_label("[Up/Down] select   [Left/Right] adjust   [Back/Esc] done", 16, Color(0.8, 0.72, 0.66), HORIZONTAL_ALIGNMENT_CENTER))
 
@@ -148,6 +154,12 @@ func _refresh_settings() -> void:
 	_dmg_row.text = "%sDAMAGE NUMBERS   %s" % [prefix2, "ON" if GameState.damage_numbers else "OFF"]
 	_dmg_row.add_theme_color_override("font_color",
 		Color(1.0, 0.85, 0.3) if dmg_sel else Color(0.95, 0.95, 0.95))
+
+	var full_sel: bool = _settings_idx == BUSES.size() + 1
+	var prefix3 := "> " if full_sel else "   "
+	_full_row.text = "%sFULLSCREEN   %s" % [prefix3, "ON" if GameState.fullscreen else "OFF"]
+	_full_row.add_theme_color_override("font_color",
+		Color(1.0, 0.85, 0.3) if full_sel else Color(0.95, 0.95, 0.95))
 
 
 func _label(text: String, size: int, col: Color, align: int) -> Label:
@@ -216,7 +228,7 @@ func _settings_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("interact") or event.is_action_pressed("jump"):
 		_close_settings()
 		return
-	var n := BUSES.size() + 1   # audio buses + the damage-numbers toggle
+	var n := BUSES.size() + 2   # audio buses + the damage-numbers + fullscreen toggles
 	if event.is_action_pressed("ui_down"):
 		_settings_idx = (_settings_idx + 1) % n
 		_refresh_settings()
@@ -237,6 +249,8 @@ func _adjust(delta: float) -> void:
 	if _settings_idx == BUSES.size():
 		GameState.damage_numbers = not GameState.damage_numbers
 		GameState.save_game()
+	elif _settings_idx == BUSES.size() + 1:
+		GameState.set_fullscreen(not GameState.fullscreen)
 	else:
 		var bus: String = BUSES[_settings_idx]
 		var v: float = clampf(float(GameState.volumes.get(bus, 1.0)) + delta, 0.0, 1.0)

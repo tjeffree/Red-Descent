@@ -49,9 +49,44 @@ var volumes: Dictionary = {"Master": 0.9, "Music": 0.7, "SFX": 0.9, "UI": 0.8}
 # toggle (some players find the constant stream of numbers distracting).
 var damage_numbers: bool = true
 
+# Borderless fullscreen. Persisted; applied on launch (apply_fullscreen) and
+# toggled live from the menu or the global F11 / Alt+Enter hotkeys.
+var fullscreen: bool = false
+
 
 func _ready() -> void:
 	load_game()
+	apply_fullscreen()
+
+
+# --- Display ---
+
+## Push the persisted window mode to the OS. Borderless fullscreen lets the
+## canvas_items stretch scale the 1280x720 frame to fill the monitor.
+func apply_fullscreen() -> void:
+	var mode := DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
+	DisplayServer.window_set_mode(mode)
+
+
+## Set the window mode, apply it live, and persist.
+func set_fullscreen(on: bool) -> void:
+	fullscreen = on
+	apply_fullscreen()
+	save_game()
+
+
+func toggle_fullscreen() -> void:
+	set_fullscreen(not fullscreen)
+
+
+## Global fullscreen hotkeys (F11 and Alt+Enter), live in every scene. Handled in
+## _input (not _unhandled_input) and consumed, so Alt+Enter never also fires the
+## menus' Enter=confirm action.
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_F11 or (event.keycode == KEY_ENTER and event.alt_pressed):
+			toggle_fullscreen()
+			get_viewport().set_input_as_handled()
 
 
 # --- Upgrades ---
@@ -228,6 +263,7 @@ func save_game() -> void:
 		"escaped": escaped,
 		"volumes": volumes,
 		"damage_numbers": damage_numbers,
+		"fullscreen": fullscreen,
 	}))
 
 
@@ -272,3 +308,4 @@ func load_game() -> void:
 		for k in vol:
 			volumes[k] = clampf(float(vol[k]), 0.0, 1.0)
 	damage_numbers = bool(data.get("damage_numbers", true))
+	fullscreen = bool(data.get("fullscreen", false))
