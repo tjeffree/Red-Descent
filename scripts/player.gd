@@ -216,6 +216,7 @@ func _apply_gravity(delta: float) -> void:
 func _apply_jump() -> void:
 	if Input.is_action_just_pressed("jump") and is_on_floor():
 		velocity.y = -jump_velocity
+		Audio.sfx("jump")
 
 
 func _apply_thrusters(delta: float) -> void:
@@ -239,6 +240,7 @@ func _apply_dash(delta: float) -> void:
 	if Input.is_action_just_pressed("dash") and _dash_cooldown_timer <= 0.0:
 		_dash_timer = dash_time
 		_dash_cooldown_timer = dash_cooldown
+		Audio.sfx("dash")
 	if _dash_timer > 0.0:
 		_dash_timer -= delta
 		velocity.x = float(_facing) * dash_speed
@@ -317,8 +319,12 @@ func _dig_cell(cell: Vector2i, dmg: float) -> void:
 	if d.is_empty():
 		return
 	var was_ore: bool = String(d.get("name", "")) == "Ore"
-	if terrain.dig(cell, dmg) and was_ore:
-		ore_collected += 1
+	if terrain.dig(cell, dmg):
+		# Block fully broken this pass — a shatter, plus a bright ping for ore.
+		Audio.sfx("dig_break")
+		if was_ore:
+			ore_collected += 1
+			Audio.sfx("ore")
 
 
 ## Returns the target cell to drill (Vector2i) based on input, or null.
@@ -372,6 +378,7 @@ func take_damage(amount: float) -> void:
 	if destroyed or _ascending:
 		return
 	hull = maxf(0.0, hull - amount)
+	Audio.sfx("hull_hit")
 	if hull <= 0.0:
 		destroyed = true
 

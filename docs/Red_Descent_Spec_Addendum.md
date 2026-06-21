@@ -55,6 +55,7 @@ sacrifice of the upgraded rig.
 | 7 | **Telemetry / narrative beats** — pilot-log transmissions, buried data logs, Earth-relay contact, hub archive | **Done & verified** (see below; all scenes load clean in 4.5.1) |
 | 8 | **The Ruins** — rigid architecture below 1000 m (indestructible bulkheads, drillable vault doors, cold palette, guaranteed grand shaft); the silo Discovery beat | **Done & verified** (see below; all scenes load clean in 4.5.1) |
 | 9 | **Climax & Endgame** — dock the capsule, transfer power (drains meta-upgrades), lockdown collapse, launch to Earth, ending card | **Done & verified** (see below; all scenes load clean in 4.5.1) |
+| Audio | **Sound & music pass** — bus mixer, `Audio` autoload, gameplay SFX, menu/UI SFX, music + ambience, volume settings | **Done & verified** (see below; menu/hub/dive/endgame run clean in 4.5.1) |
 
 ### Phase 6 — implemented (The Mantle)
 
@@ -144,3 +145,25 @@ All in `world.gd` (plus one Ruins lore beat). The world now extends past the Man
 - **Video**: `silo-reveal.ogv` (converted from the supplied mp4) is wired and verified; `launch.ogv`
   drops in the same way once generated. Conversion: `ffmpeg -i in.mp4 -codec:v libtheora -qscale:v 8
   -codec:a libvorbis -qscale:a 5 out.ogv` then re-import (Godot 4 only decodes Ogg Theora).
+
+### Audio — implemented (Sound & music pass)
+
+- **Buses** (`default_bus_layout.tres`): `Master → Music / SFX / UI`. Per-bus linear volume is
+  persisted in `GameState.volumes` and applied on launch.
+- **`Audio` autoload** (`scripts/audio.gd`): the single owner of sound. Game code calls semantic
+  helpers only — `Audio.sfx(key)` / `Audio.ui(key)` (one-shots, random variant from the event's
+  set + pitch jitter, drawn from a round-robin voice pool), `Audio.music(key)` (cross-faded
+  streaming track), `Audio.dive_loops(player)` (drives the continuous drill/thruster/ascent/hazard
+  loops off the rig's flags each frame), `Audio.stop_loops()`. Sets/loops/tracks are declared in
+  `SFX_DEF` / `LOOP_DEF` / `MUSIC_DEF`; missing files warn but never crash.
+- **Wiring**: rig (`player.gd`) — jump, dash, block-break, ore ping, hull hit; dive (`main.gd`) —
+  drill/thruster/ambience loops, cave-in, biome change, story beat + data-log blips, recall, death,
+  dock; debris (`debris.gd`) — landing thud; menu/hub — focus, click/confirm, purchase vs denied,
+  archive open/close, launch; endgame — per-beat music, countdown ticks, the rig-crush boom.
+- **Music**: menu = `title`, hub = `airy`, dive = dungeon ambient bed, endgame reveal/lockdown/launch
+  = `sector`/`urgent`/`victory`. **Loops persist across scenes** (the autoload outlives the scene),
+  so every dive-scene exit calls `Audio.stop_loops()` to keep loops from bleeding into the hub.
+- **Settings**: the main menu's **SETTINGS** entry opens an in-place mixer (Master/Music/SFX/UI),
+  Left/Right to adjust, persisted live via `Audio.set_volume`.
+- **Assets** (all CC0; see CREDITS.txt): Kenney *Sci-fi*, *Impact*, *Interface* sounds; SRG774
+  *Dark Sci-Fi Audio Pack* (music); JaggedStone *Loopable Dungeon Ambience* (dive bed).

@@ -81,13 +81,37 @@ Kenney — Sci-fi Sounds
   Folder : assets/kenney_scifi_sounds/
   Source : https://kenney.nl/assets/sci-fi-sounds
   License: CC0 1.0 (public domain)
-  Used   : (reserved) drill, thrusters, bombs, telemetry beeps
+  Used   : drill loop (engineCircular), thruster + ascent (thrusterFire,
+           spaceEngine), dash/jump, hull clang (impactMetal), cave-in
+           (explosionCrunch), death/crush (lowFrequency_explosion), lava/gas/
+           radiation ambience, biome-change door, dive ambient bed
 
 Kenney — Impact Sounds
   Folder : assets/kenney_impact_sounds/
   Source : https://kenney.nl/assets/impact-sounds
   License: CC0 1.0 (public domain)
-  Used   : (reserved) block breaks, cave-in debris, hull damage
+  Used   : block-break (impactMining), cave-in debris thud (impactPlate)
+
+Kenney — Interface Sounds
+  Folder : assets/kenney_interface_sounds/
+  Source : https://kenney.nl/assets/interface-sounds
+  License: CC0 1.0 (public domain)
+  Used   : menu/shop focus (select), confirm/click, purchase (confirmation),
+           denied (error), archive open/close, ore ping (pluck), data-log
+           (bong), transmission crackle (glitch), countdown tick
+
+SRG774 — Dark Sci-Fi Audio Pack
+  Folder : assets/srg774_dark_scifi/
+  Source : https://opengameart.org/content/dark-sci-fi-audio-pack
+  License: CC0 1.0 (public domain)
+  Used   : music — title (menu), airy (hub), sector (silo reveal),
+           urgent (lockdown), victory (launch)
+
+JaggedStone — Loopable Dungeon Ambience
+  Folder : assets/oga_dungeon_ambience/
+  Source : https://opengameart.org/content/loopable-dungeon-ambience
+  License: CC0 1.0 (public domain)
+  Used   : the dive ambient bed (low wind + water drips)
 
 -----------------------------------------------------------------------
 NOTES

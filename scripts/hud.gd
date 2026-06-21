@@ -30,6 +30,17 @@ var _dock_prompt: String = ""   # set when the rig is at the capsule terminal
 var _warn_text: String = ""
 var _warn_timer: float = 0.0
 
+# Low-hull red vignette + low-energy audio warning, driven from update_stats.
+var hull_vignette: ColorRect
+const HULL_WARN_FRAC := 0.4       # hull fraction below which the glow appears
+const HULL_VIGNETTE_MAX := 0.5    # peak edge alpha (kept subtle)
+const ENERGY_WARN_FRAC := 0.25    # energy fraction below which the alarm beeps
+const ENERGY_WARN_SLOW := 1.6     # beep interval at the threshold (s)
+const ENERGY_WARN_FAST := 0.6     # beep interval near empty (s)
+var _energy_frac: float = 1.0
+var _alive: bool = false          # true only while the rig is live (no beep after death)
+var _energy_warn_timer: float = 0.0
+
 # Pilot-log subtitle (transmissions) — lower-centre, above the compass.
 var transmission_box: Panel
 var transmission_label: Label
@@ -67,6 +78,29 @@ func _ready() -> void:
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
+
+	# Low-hull damage vignette: a red glow that creeps in from the screen edges as
+	# the hull fails, with a faint heartbeat pulse. Driven by update_stats; sits
+	# behind the gauges/text but over the game. Built as a shaded full-rect.
+	hull_vignette = ColorRect.new()
+	hull_vignette.set_anchors_preset(Control.PRESET_FULL_RECT)
+	hull_vignette.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var vig_shader := Shader.new()
+	vig_shader.code = """
+shader_type canvas_item;
+uniform float intensity : hint_range(0.0, 1.0) = 0.0;
+void fragment() {
+	float d = distance(UV, vec2(0.5)) / 0.7071;        // 0 centre .. 1 corner
+	float edge = smoothstep(0.45, 1.0, d);
+	float pulse = 0.88 + 0.12 * sin(TIME * 5.0);
+	COLOR = vec4(0.78, 0.04, 0.04, edge * intensity * pulse);
+}
+"""
+	var vig_mat := ShaderMaterial.new()
+	vig_mat.shader = vig_shader
+	vig_mat.set_shader_parameter("intensity", 0.0)
+	hull_vignette.material = vig_mat
+	root.add_child(hull_vignette)
 
 	var backdrop := ColorRect.new()
 	backdrop.color = Color(0.05, 0.02, 0.02, 0.55)
@@ -291,6 +325,13 @@ func _process(delta: float) -> void:
 	if _warn_timer > 0.0:
 		_warn_timer -= delta
 
+	# Low-energy alarm: beep while energy is critical, faster as it nears empty.
+	_energy_warn_timer -= delta
+	if _alive and _energy_frac > 0.0 and _energy_frac <= ENERGY_WARN_FRAC:
+		if _energy_warn_timer <= 0.0:
+			Audio.sfx("low_energy")
+			_energy_warn_timer = lerpf(ENERGY_WARN_FAST, ENERGY_WARN_SLOW, _energy_frac / ENERGY_WARN_FRAC)
+
 	if _transmission_timer > 0.0:
 		_transmission_timer -= delta
 		if _transmission_timer <= 0.0:
@@ -349,6 +390,16 @@ func update_stats(p: Node) -> void:
 	heat_bar.value = p.heat / p.heat_max * 100.0
 	energy_bar.value = p.energy / p.energy_max * 100.0
 	hull_bar.value = p.hull / p.hull_max * 100.0
+
+	# Low-hull red vignette ramps in below HULL_WARN_FRAC; low-energy alarm state
+	# (timed in _process) is captured here while we have the live rig.
+	var hull_frac: float = p.hull / p.hull_max
+	var vig: float = clampf((HULL_WARN_FRAC - hull_frac) / HULL_WARN_FRAC, 0.0, 1.0) * HULL_VIGNETTE_MAX
+	hull_vignette.material.set_shader_parameter("intensity", vig)
+	_energy_frac = p.energy / p.energy_max
+	# No alarm once the rig is dead or already recalling (energy is frozen low
+	# during the ascent, which would otherwise keep the beep going to the surface).
+	_alive = not bool(p.destroyed) and not bool(p.get("_ascending"))
 
 	var scramble: bool = bool(p.in_radiation)
 	heat_val.text = _pct_readout(heat_bar.value, scramble)

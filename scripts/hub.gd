@@ -175,6 +175,9 @@ func _ready() -> void:
 	_build_archive()                 # hidden full-screen log viewer
 	_present_earth_comm()            # one newly-unlocked Earth relay, if any
 
+	Audio.stop_all_sfx()             # clean slate — no dive loop/alarm bleeds in
+	Audio.music("hub")
+
 
 ## Index of `depth` within available_checkpoints(), or the last entry if the
 ## saved depth is no longer reachable (e.g. save edited / parts changed).
@@ -572,10 +575,12 @@ func _unhandled_input(event: InputEvent) -> void:
 	if _archive_open:
 		if toggle_archive or event.is_action_pressed("ui_cancel"):
 			_set_archive(false)
+			Audio.ui("close")
 		get_viewport().set_input_as_handled()
 		return
 	if toggle_archive:
 		_set_archive(true)
+		Audio.ui("open")
 		get_viewport().set_input_as_handled()
 		return
 
@@ -596,21 +601,26 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_right"):
 		_selected = (_selected + 1) % total
 		_refresh()
+		Audio.ui("focus")
 	elif event.is_action_pressed("ui_left"):
 		_selected = (_selected - 1 + total) % total
 		_refresh()
+		Audio.ui("focus")
 	elif event.is_action_pressed("ui_down"):
 		# Step down one row within the current group; spill into the next group.
 		_selected = clampi(_selected + _cur_cols(), 0, total - 1)
 		_refresh()
+		Audio.ui("focus")
 	elif event.is_action_pressed("ui_up"):
 		_selected = clampi(_selected - _cur_cols(), 0, total - 1)
 		_refresh()
+		Audio.ui("focus")
 	elif event.is_action_pressed("dash"):
 		# Telemetry beacon: cycle the launch depth (Shift / gamepad RB).
 		var cps := GameState.available_checkpoints()
 		_launch_idx = (_launch_idx + 1) % cps.size()
 		_refresh_launch()
+		Audio.ui("click")
 	elif event.is_action_pressed("interact"):
 		_confirm_selection()
 	elif event.is_action_pressed("jump"):
@@ -633,6 +643,7 @@ func _launch_dive() -> void:
 	var cps := GameState.available_checkpoints()
 	GameState.selected_start_m = float(cps[clampi(_launch_idx, 0, cps.size() - 1)])
 	GameState.save_game()
+	Audio.ui("launch")
 	get_tree().change_scene_to_file(DIVE_SCENE)
 
 
@@ -640,10 +651,13 @@ func _do_buy() -> void:
 	var id: String = GameState.UPGRADES[_selected]["id"]
 	if GameState.buy(id):
 		_msg.text = "Installed %s." % GameState.UPGRADES[_selected]["name"]
+		Audio.ui("buy")
 	elif GameState.is_maxed(id):
 		_msg.text = "%s is fully upgraded." % GameState.UPGRADES[_selected]["name"]
+		Audio.ui("deny")
 	else:
 		_msg.text = "Not enough alloy."
+		Audio.ui("deny")
 
 
 func _do_repair() -> void:
@@ -654,10 +668,13 @@ func _do_repair() -> void:
 			_msg.text = "%s repaired. The ship is whole again…" % String(p["name"])
 		else:
 			_msg.text = "Repaired %s." % String(p["name"])
+		Audio.ui("buy")
 	elif GameState.part_repaired(id):
 		_msg.text = "%s is already repaired." % String(p["name"])
+		Audio.ui("deny")
 	else:
 		_msg.text = "Not enough alloy."
+		Audio.ui("deny")
 
 
 # --- Phase 7: Earth relay (occasional contact on entry) ---------------------

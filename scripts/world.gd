@@ -69,6 +69,9 @@ const COLLAPSE_CHANCE := 0.25
 const CAVEIN_AUGER_RELIEF := 0.05
 const CAVEIN_CHANCE_MIN := 0.10
 const MAX_COLLAPSE := 3       # tiles that fall per cave-in (chain feel)
+# A cave-in alerts first (sound + HUD flash) and the ceiling actually drops this
+# long after — a beat for the player to thrust clear of the falling debris.
+const CAVEIN_WARN_DELAY := 0.5
 
 signal cavein
 
@@ -492,9 +495,23 @@ func _try_cavein(cell: Vector2i) -> void:
 	if randf() > chance:
 		return
 
-	# Collapse the column of solid tiles above into debris.
+	# The collapse is now committed. Sound the alarm + HUD flash immediately, then
+	# drop the ceiling a beat later so the warning actually precedes the rocks.
+	cavein.emit()
+	_collapse_after_warning(above)
+
+
+## The deferred half of a cave-in: after CAVEIN_WARN_DELAY, collapse the column of
+## solid tiles above `start` into falling debris. Re-checks `is_solid` per cell so
+## anything the rig dug away during the warning window is simply skipped.
+func _collapse_after_warning(start: Vector2i) -> void:
+	await get_tree().create_timer(CAVEIN_WARN_DELAY).timeout
+	# The dive may have ended (recall/death) during the warning window.
+	if not is_inside_tree() or debris_container == null:
+		return
+
 	var collapsed := 0
-	var c := above
+	var c := start
 	while collapsed < MAX_COLLAPSE and c.y > SURFACE_Y and is_solid(c):
 		var tex: Texture2D = load(get_block_def(c)["tex"])
 		erase_cell(c)
@@ -503,9 +520,6 @@ func _try_cavein(cell: Vector2i) -> void:
 		_spawn_debris(tex, c)
 		collapsed += 1
 		c += Vector2i(0, -1)
-
-	if collapsed > 0:
-		cavein.emit()
 
 
 func _spawn_debris(tex: Texture2D, cell: Vector2i) -> void:

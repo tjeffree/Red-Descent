@@ -41,6 +41,10 @@ var seen_transmissions: Dictionary = {}  # Lore transmission id -> true (Phase 7
 var collected_logs: Dictionary = {}      # Lore data-log id -> true (Phase 7)
 var escaped: bool = false                # completed the endgame at least once (Phase 9)
 
+# Audio mixer levels (0..1 linear, per bus), surfaced in the menu settings panel
+# and applied to the buses by the Audio autoload.
+var volumes: Dictionary = {"Master": 0.9, "Music": 0.7, "SFX": 0.9, "UI": 0.8}
+
 
 func _ready() -> void:
 	load_game()
@@ -218,6 +222,7 @@ func save_game() -> void:
 		"seen_transmissions": seen_transmissions,
 		"collected_logs": collected_logs,
 		"escaped": escaped,
+		"volumes": volumes,
 	}))
 
 
@@ -256,3 +261,8 @@ func load_game() -> void:
 		for k in cl:
 			collected_logs[k] = bool(cl[k])
 	escaped = bool(data.get("escaped", false))
+	# Audio levels — merge saved values over defaults so new buses survive old saves.
+	var vol: Variant = data.get("volumes", {})
+	if typeof(vol) == TYPE_DICTIONARY:
+		for k in vol:
+			volumes[k] = clampf(float(vol[k]), 0.0, 1.0)

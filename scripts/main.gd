@@ -67,6 +67,8 @@ func _ready() -> void:
 
 	_place_wreckage()
 
+	Audio.music("dive")
+
 
 ## Drop the crashed ship onto the surface crust, over the descent shaft.
 func _place_wreckage() -> void:
@@ -102,12 +104,14 @@ func _wreckage_stage() -> int:
 
 
 func _on_cavein() -> void:
-	hud.flash("!! CAVE-IN — falling debris !!")
+	hud.flash("!! CAVE-IN — get clear !!")
+	Audio.sfx("cavein")
 	_cavein_pending = true   # consumed next frame as a "cavein" lore event
 
 
 func _process(delta: float) -> void:
 	hud.update_stats(player)
+	Audio.dive_loops(player)   # drill / thruster / ascent / hazard ambience
 
 	match _state:
 		"diving":
@@ -117,9 +121,11 @@ func _process(delta: float) -> void:
 			if player.global_position.y <= _surface_y or _timer <= 0.0:
 				_state = "ending"
 				_timer = ASCENT_PAUSE
+				Audio.stop_loops()
 		"ending":
 			_timer -= delta
 			if _timer <= 0.0:
+				Audio.stop_all_sfx()
 				get_tree().change_scene_to_file(HUB_SCENE)
 
 
@@ -129,6 +135,7 @@ func _process_diving(delta: float) -> void:
 	if biome != _current_biome:
 		_current_biome = biome
 		hud.flash(BIOME_BANNERS.get(biome, biome.to_upper()))
+		Audio.sfx("biome")
 
 	# Pilot-log transmissions + buried data-logs (the Phase 7 narrative beats).
 	_process_lore(biome, delta)
@@ -148,6 +155,9 @@ func _process_diving(delta: float) -> void:
 		hud.set_dock_prompt("[E] DOCK — give the capsule the rig's power")
 		if Input.is_action_just_pressed("interact"):
 			hud.set_dock_prompt("")
+			Audio.stop_oneshots()   # cut any in-flight alarm before the cinematic
+			Audio.ui("confirm")
+			Audio.stop_loops()
 			get_tree().change_scene_to_file(ENDGAME_SCENE)
 		return
 	hud.set_dock_prompt("")
@@ -187,6 +197,7 @@ func _process_lore(biome: String, delta: float) -> void:
 			var id: String = t["id"]
 			if not GameState.transmission_seen(id) and Lore.fires(t, ctx):
 				hud.show_transmission(Lore.line(t, fill))
+				Audio.sfx("transmission")
 				GameState.mark_transmission(id)
 				shown = true
 				break   # at most one new transmission per frame
@@ -203,6 +214,7 @@ func _process_lore(biome: String, delta: float) -> void:
 	if lid != "" and not GameState.log_collected(lid):
 		GameState.collect_log(lid)
 		hud.show_data_log(Lore.get_log(lid))
+		Audio.sfx("datalog")
 
 
 ## Recall: bank ore, then play the ascent animation back to the surface.
@@ -210,6 +222,7 @@ func _recall() -> void:
 	hud.set_return_available(false)
 	GameState.record_run("RECALLED — ore smelted to alloy", player.ore_collected, player.current_depth, true)
 	hud.show_banner("RECALLING — ascending to surface...  (+%d alloy)" % player.ore_collected)
+	Audio.ui("confirm")
 	player.start_ascent()
 	_state = "ascending"
 	_timer = ASCENT_MAX
@@ -217,6 +230,8 @@ func _recall() -> void:
 
 func _die(reason: String) -> void:
 	hud.set_return_available(false)
+	Audio.stop_loops()
+	Audio.sfx("death")
 	GameState.record_run(reason, player.ore_collected, player.current_depth, false)
 	hud.show_banner(reason + "  (ore lost)\nReturning to the hub...")
 	_state = "ending"

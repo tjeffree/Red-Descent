@@ -42,6 +42,7 @@ var _t := 0.0
 var _beat := -1
 var _crushed := false
 var _debris_spawn := 0.0
+var _last_tick := -1
 
 
 func _ready() -> void:
@@ -106,6 +107,7 @@ func _enter(phase: String) -> void:
 	_beat = -1
 	match phase:
 		"reveal":
+			Audio.music("reveal")
 			_title.text = "THE SILO"
 			_subtitle.text = "An ancient terraforming vault — and a capsule that still remembers how to fly."
 			if not _play_video(SILO_VIDEO):
@@ -113,14 +115,17 @@ func _enter(phase: String) -> void:
 		"transfer":
 			_stop_video()
 			GameState.sacrifice_rig()   # the Ultimate Sacrifice — upgrades gone for good
+			Audio.sfx("datalog")        # the power drains across with a hollow tone
 			_title.text = "POWER TRANSFER"
 			_subtitle.text = "Every system you ever bolted on, poured into the capsule. The rig goes dark. There's no taking it back."
 		"lockdown":
+			Audio.music("lockdown")
 			_title.text = ""
 			_subtitle.text = "LOCKDOWN — the silo is coming down around you."
 		"launch":
 			_stop_video()
 			_clear_debris()
+			Audio.music("launch")
 			_countdown.text = ""
 			_title.text = "LAUNCH"
 			_subtitle.text = "Toward a pale blue dot you've only seen in photographs."
@@ -155,7 +160,12 @@ func _process(delta: float) -> void:
 
 func _process_lockdown(delta: float) -> void:
 	var remaining: float = maxf(0.0, LOCKDOWN_SECS - _t)
-	_countdown.text = "SILO COLLAPSE   T-MINUS %02d" % int(ceil(remaining))
+	var secs: int = int(ceil(remaining))
+	_countdown.text = "SILO COLLAPSE   T-MINUS %02d" % secs
+	# One tick per second of the countdown.
+	if secs != _last_tick:
+		_last_tick = secs
+		Audio.ui("tick")
 
 	# Escalating vigil text as the collapse worsens.
 	var beat: int = int(_t / (LOCKDOWN_SECS / 4.0))
@@ -170,6 +180,7 @@ func _process_lockdown(delta: float) -> void:
 	# The rig is crushed in the final seconds — the hardest thing to watch.
 	if not _crushed and remaining <= CRUSH_AT:
 		_crushed = true
+		Audio.sfx("crush")
 		_title.text = "THE RIG IS GONE"
 		_subtitle.text = "It held until it couldn't. Out the window, only dark and falling steel."
 
@@ -235,8 +246,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	match _phase:
 		"reveal":
+			Audio.ui("click")
 			_enter("transfer")     # skip the reveal
 		"launch":
+			Audio.ui("click")
 			_enter("end")          # skip the launch
 		"end":
+			Audio.ui("confirm")
 			get_tree().change_scene_to_file(MENU_SCENE)

@@ -53,6 +53,9 @@ func _physics_process(delta: float) -> void:
 func _on_body_entered(body: Node) -> void:
 	if _cooldown > 0.0:
 		return
+	# A muffled thud as the chunk lands (terrain or rig); the rig also takes the
+	# hull-damage clang from take_damage(). Cooldown keeps a noisy pile-up quiet.
+	Audio.sfx("debris_hit")
+	_cooldown = 0.6
 	if body.has_method("take_damage"):
 		body.take_damage(damage)
-		_cooldown = 0.6

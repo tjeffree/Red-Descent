@@ -4,18 +4,28 @@ extends Node2D
 ## An intro video plays once and freezes on its last frame, filling the viewport
 ## behind the title and a simple vertical selector.
 ##   [Up/Down] select    [E]/[Enter]/[Space] confirm
+##
+## SETTINGS opens an in-place audio mixer (Master/Music/SFX/UI), adjusted with
+## Left/Right and persisted through GameState via the Audio autoload.
 
 const FONT_PATH := "res://assets/kenney_ui_pack_scifi/Font/Kenney Future Narrow.ttf"
 const VIDEO_PATH := "res://assets/video/red-descent-intro.ogv"
 const HUB_SCENE := "res://scenes/hub.tscn"
 ## Loops after the first restart this far in, skipping the intro lead-in.
 const LOOP_START := 2.0
+const BUSES := ["Master", "Music", "SFX", "UI"]
 
 var _font: FontFile
 var _video: VideoStreamPlayer
 var _selected: int = 0
-var _options := ["START DESCENT", "QUIT"]
+var _options := ["START DESCENT", "SETTINGS", "QUIT"]
 var _rows: Array[Label] = []
+
+var _menu_box: VBoxContainer
+var _settings_box: VBoxContainer
+var _settings_rows: Array[Label] = []
+var _in_settings: bool = false
+var _settings_idx: int = 0
 
 
 func _ready() -> void:
@@ -45,23 +55,23 @@ func _ready() -> void:
 	layer.add_child(overlay)
 
 	# Title + menu, centred-ish near the top.
-	var box := VBoxContainer.new()
-	box.alignment = BoxContainer.ALIGNMENT_CENTER
-	box.set_anchors_preset(Control.PRESET_FULL_RECT)
-	box.add_theme_constant_override("separation", 14)
-	layer.add_child(box)
+	_menu_box = VBoxContainer.new()
+	_menu_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	_menu_box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_menu_box.add_theme_constant_override("separation", 14)
+	layer.add_child(_menu_box)
 
-	box.add_child(_label("RED DESCENT", 88, Color(0.85, 0.18, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
-	box.add_child(_label("A procedural digging rogue-lite", 20, Color(0.85, 0.78, 0.72), HORIZONTAL_ALIGNMENT_CENTER))
-	box.add_child(_spacer(40))
+	_menu_box.add_child(_label("RED DESCENT", 88, Color(0.85, 0.18, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
+	_menu_box.add_child(_label("A procedural digging rogue-lite", 20, Color(0.85, 0.78, 0.72), HORIZONTAL_ALIGNMENT_CENTER))
+	_menu_box.add_child(_spacer(40))
 
 	for opt in _options:
 		var r := _label(opt, 34, Color(0.95, 0.95, 0.95), HORIZONTAL_ALIGNMENT_CENTER)
 		_rows.append(r)
-		box.add_child(r)
+		_menu_box.add_child(r)
 
-	box.add_child(_spacer(36))
-	box.add_child(_label("[Up/Down] select    [E]/[Enter]/[Space] confirm", 16, Color(0.8, 0.72, 0.66), HORIZONTAL_ALIGNMENT_CENTER))
+	_menu_box.add_child(_spacer(36))
+	_menu_box.add_child(_label("[Up/Down] select    [E]/[Enter]/[Space] confirm", 16, Color(0.8, 0.72, 0.66), HORIZONTAL_ALIGNMENT_CENTER))
 
 	# Controller hints (face-button diamond) bottom-right.
 	var diamond := Control.new()
@@ -73,7 +83,30 @@ func _ready() -> void:
 	nav.position = Vector2(980, 688)
 	layer.add_child(nav)
 
+	_build_settings(layer)
 	_refresh()
+
+	Audio.stop_all_sfx()   # clean slate (e.g. returning from the endgame)
+	Audio.music("menu")
+
+
+## The audio-mixer overlay, hidden until SETTINGS is chosen.
+func _build_settings(layer: CanvasLayer) -> void:
+	_settings_box = VBoxContainer.new()
+	_settings_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	_settings_box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_settings_box.add_theme_constant_override("separation", 18)
+	_settings_box.visible = false
+	layer.add_child(_settings_box)
+
+	_settings_box.add_child(_label("AUDIO", 64, Color(0.85, 0.18, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
+	_settings_box.add_child(_spacer(30))
+	for b in BUSES:
+		var r := _label("", 30, Color(0.95, 0.95, 0.95), HORIZONTAL_ALIGNMENT_CENTER)
+		_settings_rows.append(r)
+		_settings_box.add_child(r)
+	_settings_box.add_child(_spacer(30))
+	_settings_box.add_child(_label("[Up/Down] channel   [Left/Right] adjust   [Back/Esc] done", 16, Color(0.8, 0.72, 0.66), HORIZONTAL_ALIGNMENT_CENTER))
 
 
 func _on_video_finished() -> void:
@@ -90,6 +123,18 @@ func _refresh() -> void:
 		if i == _selected:
 			col = Color(1.0, 0.85, 0.3)
 		_rows[i].add_theme_color_override("font_color", col)
+
+
+## Render the four mixer rows as labelled bars, e.g. "> MUSIC  [======    ] 70%".
+func _refresh_settings() -> void:
+	for i in range(BUSES.size()):
+		var lin: float = float(GameState.volumes.get(BUSES[i], 1.0))
+		var filled := int(round(lin * 10.0))
+		var bar := "[%s%s]" % ["=".repeat(filled), " ".repeat(10 - filled)]
+		var prefix := "> " if i == _settings_idx else "   "
+		_settings_rows[i].text = "%s%-7s %s %3d%%" % [prefix, BUSES[i].to_upper(), bar, int(round(lin * 100.0))]
+		_settings_rows[i].add_theme_color_override("font_color",
+			Color(1.0, 0.85, 0.3) if i == _settings_idx else Color(0.95, 0.95, 0.95))
 
 
 func _label(text: String, size: int, col: Color, align: int) -> Label:
@@ -111,18 +156,72 @@ func _spacer(h: int) -> Control:
 func _confirm() -> void:
 	match _selected:
 		0:
+			Audio.ui("confirm")
 			get_tree().change_scene_to_file(HUB_SCENE)
 		1:
+			_open_settings()
+		2:
 			get_tree().quit()
 
 
+func _open_settings() -> void:
+	_in_settings = true
+	_settings_idx = 0
+	_menu_box.visible = false
+	_settings_box.visible = true
+	_refresh_settings()
+	Audio.ui("open")
+
+
+func _close_settings() -> void:
+	_in_settings = false
+	_settings_box.visible = false
+	_menu_box.visible = true
+	_refresh()
+	Audio.ui("close")
+
+
 func _unhandled_input(event: InputEvent) -> void:
+	if _in_settings:
+		_settings_input(event)
+		return
+
 	var n := _options.size()
 	if event.is_action_pressed("ui_down"):
 		_selected = (_selected + 1) % n
 		_refresh()
+		Audio.ui("focus")
 	elif event.is_action_pressed("ui_up"):
 		_selected = (_selected - 1 + n) % n
 		_refresh()
+		Audio.ui("focus")
 	elif event.is_action_pressed("interact") or event.is_action_pressed("jump"):
 		_confirm()
+
+
+func _settings_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel") or event.is_action_pressed("interact") or event.is_action_pressed("jump"):
+		_close_settings()
+		return
+	var n := BUSES.size()
+	if event.is_action_pressed("ui_down"):
+		_settings_idx = (_settings_idx + 1) % n
+		_refresh_settings()
+		Audio.ui("focus")
+	elif event.is_action_pressed("ui_up"):
+		_settings_idx = (_settings_idx - 1 + n) % n
+		_refresh_settings()
+		Audio.ui("focus")
+	elif event.is_action_pressed("ui_right"):
+		_adjust(0.1)
+	elif event.is_action_pressed("ui_left"):
+		_adjust(-0.1)
+
+
+## Nudge the selected bus volume, apply + persist, and click for feedback.
+func _adjust(delta: float) -> void:
+	var bus: String = BUSES[_settings_idx]
+	var v: float = clampf(float(GameState.volumes.get(bus, 1.0)) + delta, 0.0, 1.0)
+	Audio.set_volume(bus, v)
+	_refresh_settings()
+	Audio.ui("focus")
