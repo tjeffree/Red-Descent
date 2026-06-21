@@ -527,7 +527,10 @@ func dig(cell: Vector2i, damage: float) -> bool:
 		_block_hp.erase(cell)
 		_ore_cells.erase(cell)
 		if show_numbers:
-			var accum: float = _dmg_accum.get(cell, 0.0) + damage
+			# Attribute only the HP the block actually had — never the overkill from
+			# a one-pass tool (Ore Magnet / Diamond Bit dig at DIAMOND_DMG = 1e9),
+			# which would otherwise show an absurd number.
+			var accum: float = _dmg_accum.get(cell, 0.0) + minf(damage, hp + damage)
 			block_hit.emit(to_global(map_to_local(cell)), accum, true)   # killing blow always pops
 		_dmg_accum.erase(cell)
 		_dmg_last_ms.erase(cell)
