@@ -1,0 +1,47 @@
+name: Release (Windows)
+
+# Build a Windows export and publish it as a GitHub Release whenever a
+# version tag (e.g. v1.0.0) is pushed.
+#
+#   git tag v1.0.0
+#   git push origin v1.0.0
+#
+# The project is GDScript-only (no .cs files), so CI exports with the
+# standard (non-mono) Godot 4.5.2 binary + standard export templates —
+# no .NET SDK needed on the runner.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  export-windows:
+    name: Export Windows build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required to create the release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Export game
+        id: export
+        uses: firebelley/godot-export@v8.0.0
+        with:
+          godot_executable_download_url: https://github.com/godotengine/godot/releases/download/4.5.2-stable/Godot_v4.5.2-stable_linux.x86_64.zip
+          godot_export_templates_download_url: https://github.com/godotengine/godot/releases/download/4.5.2-stable/Godot_v4.5.2-stable_export_templates.tpz
+          relative_project_path: ./
+          # No archiving — the .pck is embedded in the .exe (embed_pck=true in
+          # export_presets.cfg), so the export is already a single standalone file.
+          archive_output: false
+          cache: true
+
+      - name: Create release
+        uses: ncipollo/release-action@v1.18.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          generateReleaseNotes: true
+          tag: ${{ github.ref_name }}
+          # Attach the standalone executable(s) directly to the release.
+          artifacts: ${{ steps.export.outputs.build_directory }}/**/*.exe
