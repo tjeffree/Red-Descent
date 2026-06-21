@@ -543,8 +543,36 @@ func dig(cell: Vector2i, damage: float) -> bool:
 ## The `count` nearest remaining ore cells to a world position, for the HUD
 ## compass. Returns an Array of { position, distance_m }, nearest first.
 func nearest_ores(from: Vector2, count: int) -> Array:
+	return _nearest_in(_ore_cells, from, count)
+
+
+## Nearest buried salvage caches to a world position (Seismic Scanner tier 2+
+## compass pings). Same { position, distance_m } shape as nearest_ores.
+func nearest_powerups(from: Vector2, count: int) -> Array:
+	return _nearest_in(_powerup_cells, from, count)
+
+
+## Nearest remaining (uncollected) data logs to a world position. Same shape.
+func nearest_data_logs(from: Vector2, count: int) -> Array:
+	return _nearest_in(_data_log_cells, from, count)
+
+
+## Point(s) of interest for the top Seismic Scanner tier: the nearest uncollected
+## data log(s), or — if none remain this dive — the escape capsule at the shaft
+## bottom (tagged `poi == "exit"` so the HUD can label it differently).
+func nearest_poi(from: Vector2, count: int) -> Array:
+	var logs := nearest_data_logs(from, count)
+	if not logs.is_empty():
+		return logs
+	var cap := capsule_position()
+	return [{ "position": cap, "distance_m": from.distance_to(cap) / TILE_SIZE * METERS_PER_TILE, "poi": "exit" }]
+
+
+## Shared "nearest N" over a dict keyed by Vector2i cells; returns the same
+## { position, distance_m } entries (nearest first) the HUD compass consumes.
+func _nearest_in(cells: Dictionary, from: Vector2, count: int) -> Array:
 	var all: Array = []
-	for cell in _ore_cells:
+	for cell in cells:
 		var pos := to_global(map_to_local(cell))
 		all.append({ "position": pos, "d2": from.distance_squared_to(pos) })
 	all.sort_custom(func(a, b): return a["d2"] < b["d2"])
