@@ -56,6 +56,22 @@ var _datalog_timer: float = 0.0
 const DATALOG_SHOW := 6.0
 const DATALOG_FADE := 1.5
 
+# Salvage-cache (powerup) pickup popup — framed banner, centre, colour-accented
+# to the cache. Distinct from the gold data-log box so the two never read alike.
+var powerup_box: Panel
+var powerup_style: StyleBoxFlat
+var powerup_title: Label
+var powerup_body: Label
+var _powerup_timer: float = 0.0
+const POWERUP_SHOW := 4.5
+const POWERUP_FADE := 1.2
+
+# Active-boost readout — a stacked column of colour chips (top-right) showing the
+# powerups currently running and their countdowns. Rebuilt from the rig each frame.
+var boost_box: VBoxContainer
+var boost_chips: Array[Label] = []
+const BOOST_CHIP_MAX := 8
+
 # Biome internal id → HUD display name.
 const BIOME_NAMES := {
 	"crust": "THE CRUST",
@@ -251,6 +267,67 @@ void fragment() {
 	datalog_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	dvbox.add_child(datalog_body)
 
+	# Salvage-cache pickup popup — centred, accent colour set per pickup.
+	powerup_box = Panel.new()
+	powerup_box.set_anchors_preset(Control.PRESET_CENTER)
+	powerup_box.anchor_left = 0.5
+	powerup_box.anchor_right = 0.5
+	powerup_box.anchor_top = 0.5
+	powerup_box.anchor_bottom = 0.5
+	powerup_box.offset_left = -300.0
+	powerup_box.offset_right = 300.0
+	powerup_box.offset_top = -150.0
+	powerup_box.offset_bottom = -40.0
+	powerup_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	powerup_style = StyleBoxFlat.new()
+	powerup_style.bg_color = Color(0.02, 0.05, 0.06, 0.92)
+	powerup_style.border_color = Color(0.5, 0.9, 1.0, 0.95)
+	powerup_style.set_border_width_all(3)
+	powerup_style.set_corner_radius_all(4)
+	powerup_style.set_content_margin_all(12)
+	powerup_box.add_theme_stylebox_override("panel", powerup_style)
+	powerup_box.visible = false
+	root.add_child(powerup_box)
+
+	var pvbox := VBoxContainer.new()
+	pvbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pvbox.offset_left = 16.0
+	pvbox.offset_right = -16.0
+	pvbox.offset_top = 8.0
+	pvbox.offset_bottom = -8.0
+	pvbox.add_theme_constant_override("separation", 6)
+	powerup_box.add_child(pvbox)
+
+	powerup_title = _make_label("", 20)
+	powerup_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	powerup_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	pvbox.add_child(powerup_title)
+
+	var psub := _make_label("◇ SALVAGE RECOVERED — origin unknown", 12)
+	psub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	psub.add_theme_color_override("font_color", Color(0.7, 0.8, 0.85))
+	pvbox.add_child(psub)
+
+	powerup_body = _make_label("", 14)
+	powerup_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	powerup_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	powerup_body.add_theme_color_override("font_color", Color(0.9, 0.93, 0.95))
+	powerup_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	pvbox.add_child(powerup_body)
+
+	# Active-boost readout — colour chips stacked top-right under the controller area.
+	boost_box = VBoxContainer.new()
+	boost_box.position = Vector2(1040, 16)
+	boost_box.add_theme_constant_override("separation", 3)
+	boost_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(boost_box)
+	for i in range(BOOST_CHIP_MAX):
+		var chip := _make_label("", 14)
+		chip.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		chip.visible = false
+		boost_box.add_child(chip)
+		boost_chips.append(chip)
+
 
 func set_return_available(v: bool) -> void:
 	_return_available = v
@@ -274,7 +351,8 @@ func _update_compass(p: Node) -> void:
 		compass_label.text = ""
 		return
 
-	var count: int = clampi(p.compass_points, 1, COMPASS_MAX)
+	# Prospector Eye lights every ping; otherwise the Seismic Scanner count.
+	var count: int = COMPASS_MAX if (p.has_method("has_boost") and p.has_boost("prospector")) else clampi(p.compass_points, 1, COMPASS_MAX)
 	var ores: Array = t.nearest_ores(p.global_position, count)
 
 	for i in range(COMPASS_MAX):
@@ -321,6 +399,40 @@ func show_data_log(log: Dictionary) -> void:
 	_datalog_timer = DATALOG_SHOW
 
 
+## Salvage-cache (powerup) pickup popup. Accent colour + name from the def; the
+## body explains the (instant) effect and nods to its impossible origin.
+func show_powerup(def: Dictionary) -> void:
+	if def.is_empty():
+		return
+	var col: Color = def.get("color", Color(0.5, 0.9, 1.0))
+	powerup_style.border_color = Color(col.r, col.g, col.b, 0.95)
+	powerup_title.text = String(def.get("flash", def.get("name", "")))
+	powerup_title.add_theme_color_override("font_color", col)
+	powerup_body.text = String(def.get("desc", ""))
+	powerup_box.modulate.a = 1.0
+	powerup_box.visible = true
+	_powerup_timer = POWERUP_SHOW
+
+
+## Refresh the active-boost chips from the rig's live boosts. Timed boosts show a
+## countdown; rest-of-dive/armed ones show a steady marker.
+func update_boosts(p: Node) -> void:
+	var boosts: Array = p.active_boosts() if p.has_method("active_boosts") else []
+	for i in range(BOOST_CHIP_MAX):
+		var chip := boost_chips[i]
+		if i < boosts.size():
+			var b: Dictionary = boosts[i]
+			var rem: float = float(b["remaining"])
+			var suffix := "  ●" if rem == INF else "  %ds" % int(ceil(rem))
+			if String(b["id"]) == "last_gasp":
+				suffix = "  ARMED"
+			chip.text = String(b["name"]) + suffix
+			chip.add_theme_color_override("font_color", b["color"])
+			chip.visible = true
+		else:
+			chip.visible = false
+
+
 func _process(delta: float) -> void:
 	if _warn_timer > 0.0:
 		_warn_timer -= delta
@@ -345,6 +457,13 @@ func _process(delta: float) -> void:
 			datalog_box.visible = false
 		elif _datalog_timer < DATALOG_FADE:
 			datalog_box.modulate.a = _datalog_timer / DATALOG_FADE
+
+	if _powerup_timer > 0.0:
+		_powerup_timer -= delta
+		if _powerup_timer <= 0.0:
+			powerup_box.visible = false
+		elif _powerup_timer < POWERUP_FADE:
+			powerup_box.modulate.a = _powerup_timer / POWERUP_FADE
 
 
 func _make_label(text: String, size: int) -> Label:
@@ -419,6 +538,7 @@ func update_stats(p: Node) -> void:
 		info.text = "%s     DEPTH  %s m     ORE  %d     ALLOY  %d" % [biome_str, depth_str, p.ore_collected, GameState.alloy]
 
 	_update_compass(p)
+	update_boosts(p)
 
 	# Status line priority: transient warning > recall prompt > hazard > overheat > hint.
 	var msg := "[A/D] move/dig   [S] dig down   [Space] jump / hold thrust   [Shift] dash"

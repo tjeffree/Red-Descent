@@ -45,6 +45,7 @@ const SFX_DEF := {
 	"biome":      { "dir": SCIFI,  "files": ["doorOpen_000","doorOpen_001","doorOpen_002"], "db": -4.0, "pitch": 0.06 },
 	"transmission": { "dir": IFACE, "files": ["glitch_001","glitch_002","glitch_003","glitch_004"], "db": -9.0, "pitch": 0.1 },
 	"datalog":    { "dir": IFACE,  "files": ["bong_001"], "db": -3.0, "pitch": 0.06 },
+	"powerup":    { "dir": IFACE,  "files": ["pluck_001","pluck_002"], "db": -1.0, "pitch": 0.12 },
 	"low_energy": { "dir": IFACE,  "files": ["glass_001","glass_003","glass_005"], "db": -3.0, "pitch": 0.05 },
 	"crush":      { "dir": SCIFI,  "files": ["lowFrequency_explosion_000","lowFrequency_explosion_001"], "db": 1.0, "pitch": 0.04 },
 

@@ -140,6 +140,9 @@ func _process_diving(delta: float) -> void:
 	# Pilot-log transmissions + buried data-logs (the Phase 7 narrative beats).
 	_process_lore(biome, delta)
 
+	# Buried salvage caches — short-term, single-dive powerups (instant on pickup).
+	_process_powerups()
+
 	# Death conditions (GDD §2): ore is lost.
 	if player.destroyed:
 		_die("RIG CRUSHED — hull integrity lost")
@@ -215,6 +218,21 @@ func _process_lore(biome: String, delta: float) -> void:
 		GameState.collect_log(lid)
 		hud.show_data_log(Lore.get_log(lid))
 		Audio.sfx("datalog")
+
+
+## Buried salvage-cache pickup. The terrain removes a cache (and its glint) when
+## the rig digs within reach; the effect fires INSTANTLY on the rig and a popup
+## names it. Caches stack, so several can run at once. Also surfaces the Last
+## Gasp save (the one powerup whose effect triggers later, on a fatal hit).
+func _process_powerups() -> void:
+	var pid: String = terrain.try_collect_powerup(player.global_position)
+	if pid != "":
+		player.apply_powerup(pid)
+		hud.show_powerup(Powerups.get_def(pid))
+		Audio.sfx("powerup")
+
+	if player.consume_last_gasp():
+		hud.flash("!! LAST GASP — systems hold at 1% !!")
 
 
 ## Recall: bank ore, then play the ascent animation back to the surface.

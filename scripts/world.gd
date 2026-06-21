@@ -84,6 +84,8 @@ var _ore_cells: Dictionary = {}      # Vector2i -> true, for the ore compass
 var _hazard_cells: Dictionary = {}   # Vector2i -> String ("gas"|"lava"|"radiation")
 var _bedrock_cells: Dictionary = {}  # Vector2i -> true, indestructible floor
 var _data_log_cells: Dictionary = {} # Vector2i -> String (Lore.DATA_LOGS id), buried artifacts
+var _powerup_cells: Dictionary = {}  # Vector2i -> String (Powerups id), buried salvage caches
+var _powerup_markers: Dictionary = {} # Vector2i -> Node2D, the faint glint drawn for each cache
 var _shaft_cx: Dictionary = {}       # ruins row y -> open grand-shaft centre x (for spawns)
 
 var _cave := FastNoiseLite.new()
@@ -184,6 +186,7 @@ func _generate() -> void:
 
 	_carve_ruins()
 	_place_data_logs()
+	_place_powerups()
 
 
 ## Bury one collectible data log per uncollected Lore.DATA_LOGS entry. Each is
@@ -224,6 +227,97 @@ func _place_data_logs() -> void:
 			_hazard_cells.erase(cell)   # no longer an open hazard pocket
 
 		_data_log_cells[cell] = id
+
+
+# --- Buried salvage caches: short-term, single-dive powerups (Powerups) ---
+
+# How many salvage caches a dive seeds. Kept low so a find is a genuine event,
+# not a staple — most dives surface one or two, the deepest a few more.
+const POWERUP_MIN: int = 3
+const POWERUP_MAX: int = 6
+const POWERUP_PICKUP_TILES: int = 1   # Chebyshev reach to grab a cache (matches logs)
+const POWERUP_MARKER_R: float = 5.0   # glint half-size in px
+
+## Scatter a handful of salvage caches through the diggable strata. Each is a
+## random Powerups entry eligible for its depth, embedded in a solid interior
+## cell (so it reads as buried) and marked with a faint pulsing glint that shows
+## through the rock — a hint to dig toward. Never placed in the Ruins.
+func _place_powerups() -> void:
+	var bedrock_top: int = mini(H - BEDROCK_ROWS, _ruins_top_y())
+	var count: int = randi_range(POWERUP_MIN, POWERUP_MAX)
+	for _i in range(count):
+		var y: int = randi_range(SURFACE_Y + 6, bedrock_top - 1)
+		var depth_m: float = float(y - SURFACE_Y) * METERS_PER_TILE
+		var def: Dictionary = Powerups.random_for_depth(depth_m)
+		if def.is_empty():
+			continue
+		var x: int = randi_range(2, W - 3)
+		var cell := Vector2i(x, y)
+		if _powerup_cells.has(cell):
+			continue   # don't stack two caches in one cell
+
+		# Embed it: if the cell is open air, fill it so the cache sits in the strata.
+		if not is_solid(cell):
+			var idx := _material(x, y, depth_m)
+			_place(x, y, idx)
+			if idx == ORE:
+				_ore_cells[cell] = true
+			_hazard_cells.erase(cell)
+
+		_powerup_cells[cell] = String(def["id"])
+		_spawn_powerup_marker(cell, def.get("color", Color.WHITE))
+
+
+## A faint, pulsing diamond glint marking a buried cache. Child of this layer so
+## it renders just above the tiles (glinting through the rock); colour-coded to
+## the cache's category. The pulse loops via a tween for the dive's lifetime.
+func _spawn_powerup_marker(cell: Vector2i, color: Color) -> void:
+	var m := Polygon2D.new()
+	var r := POWERUP_MARKER_R
+	m.polygon = PackedVector2Array([
+		Vector2(0, -r), Vector2(r, 0), Vector2(0, r), Vector2(-r, 0)
+	])
+	m.color = Color(color.r, color.g, color.b, 0.85)
+	m.position = map_to_local(cell)
+	m.z_index = 1
+	add_child(m)
+	# Soft heartbeat pulse so it reads as "live tech" buried in dead rock.
+	var tw := m.create_tween().set_loops()
+	tw.tween_property(m, "modulate:a", 0.25, 0.8).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(m, "modulate:a", 1.0, 0.8).set_trans(Tween.TRANS_SINE)
+	_powerup_markers[cell] = m
+
+
+## Try to collect a buried salvage cache near a world position. Called every
+## frame. Returns the Powerups id if one is within reach (removing it + its
+## glint), else "". Does NOT apply the effect — the caller (main.gd) does.
+func try_collect_powerup(global_pos: Vector2) -> String:
+	if _powerup_cells.is_empty():
+		return ""
+	var here: Vector2i = local_to_map(to_local(global_pos))
+	for cell in _powerup_cells:
+		if absi(cell.x - here.x) <= POWERUP_PICKUP_TILES and absi(cell.y - here.y) <= POWERUP_PICKUP_TILES:
+			var id: String = _powerup_cells[cell]
+			_powerup_cells.erase(cell)
+			var marker: Node = _powerup_markers.get(cell)
+			if marker != null and is_instance_valid(marker):
+				marker.queue_free()
+			_powerup_markers.erase(cell)
+			return id
+	return ""
+
+
+## Ore cells within `tiles` (Chebyshev) of a world position — used by the Ore
+## Magnet powerup to vacuum nearby veins. Scans the live ore set.
+func ore_cells_within(from: Vector2, tiles: int) -> Array:
+	var out: Array = []
+	if _ore_cells.is_empty():
+		return out
+	var here: Vector2i = local_to_map(to_local(from))
+	for cell in _ore_cells:
+		if absi(cell.x - here.x) <= tiles and absi(cell.y - here.y) <= tiles:
+			out.append(cell)
+	return out
 
 
 # --- The Ruins (Phase 8): rigid, indestructible architecture below 1000 m ---

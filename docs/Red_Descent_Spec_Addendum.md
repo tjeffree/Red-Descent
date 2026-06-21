@@ -56,6 +56,7 @@ sacrifice of the upgraded rig.
 | 8 | **The Ruins** — rigid architecture below 1000 m (indestructible bulkheads, drillable vault doors, cold palette, guaranteed grand shaft); the silo Discovery beat | **Done & verified** (see below; all scenes load clean in 4.5.1) |
 | 9 | **Climax & Endgame** — dock the capsule, transfer power (drains meta-upgrades), lockdown collapse, launch to Earth, ending card | **Done & verified** (see below; all scenes load clean in 4.5.1) |
 | Audio | **Sound & music pass** — bus mixer, `Audio` autoload, gameplay SFX, menu/UI SFX, music + ambience, volume settings | **Done & verified** (see below; menu/hub/dive/endgame run clean in 4.5.1) |
+| Powerups | **Short-term powerups** — buried salvage caches granting single-dive boons (instant on pickup, stackable, some timed); `Powerups` autoload + rig/HUD/terrain wiring | **Done & verified** (see below; dive runs clean in 4.5.1, effects self-tested) |
 
 ### Phase 6 — implemented (The Mantle)
 
@@ -167,3 +168,43 @@ All in `world.gd` (plus one Ruins lore beat). The world now extends past the Man
   Left/Right to adjust, persisted live via `Audio.set_volume`.
 - **Assets** (all CC0; see CREDITS.txt): Kenney *Sci-fi*, *Impact*, *Interface* sounds; SRG774
   *Dark Sci-Fi Audio Pack* (music); JaggedStone *Loopable Dungeon Ambience* (dive bed).
+
+### Powerups — implemented (short-term, single-dive boons)
+
+A separate axis from the permanent Alloy UPGRADES: **buried salvage caches** of
+"impossibly advanced tech, origin unknown" that grant a boon for the **current
+dive only**. They fire **instantly** on pickup (no inventory/button), **stack**,
+and are deliberately **rare** (3-6 seeded per dive).
+
+- **`Powerups` autoload** (`scripts/powerups.gd`): stateless content + helpers,
+  mirroring `Lore`. `POWERUPS` is the catalogue; each entry has `id`, `name`,
+  `duration` (`>0` timed seconds, `-1` rest-of-dive, `0` instant one-shot),
+  `min_depth` (depth-gating for deep-only caches), `color`, `flash`, `desc`.
+  Helpers: `get_def`, `random_for_depth`, `color_of`.
+- **Placement + markers** (`world.gd`): `_place_powerups()` seeds
+  `POWERUP_MIN..MAX` caches into solid interior cells (embedded like data-logs),
+  each marked by a faint **pulsing diamond glint** (`_spawn_powerup_marker`,
+  colour-coded, drawn above the tiles so it shows through the rock as a dig hint).
+  `try_collect_powerup(pos)` grabs one within `POWERUP_PICKUP_TILES` and frees its
+  glint; `ore_cells_within(pos, tiles)` backs the Ore Magnet.
+- **Effects** (`player.gd`): active boosts live in `_boosts` (id to seconds left;
+  `INF` = rest-of-dive/armed), ticked in `_physics_process`, refreshed on re-pickup.
+  `apply_powerup(id)` runs instant effects and registers lasting ones. Effects fold
+  into the systems via `has_boost()` plus multiplier helpers `_drill_mult`,
+  `_heat_mult`, `_energy_cost_mult`, `_armor_mult`, and the unified
+  `_damage_hull(amount, armored)` (which also implements Last Gasp).
+- **Catalogue**: Overclock Core (drill x3, 12 s), Adamant Bit (one-pass dig, 6 s),
+  Auger Surge (wider/deeper swath, 12 s), Ore Magnet (auto-vacuum ore, rest),
+  Prospector Eye (max compass pings, rest), Cryo Flush (heat to 0 + faster venting,
+  10 s), Power Cache (instant energy refill), Overcharge (free actions, 8 s),
+  Heat-Sink Skin (no drill heat, 10 s), Pressure Seal (negate depth penalty, rest,
+  >=500 m), Aegis Plating (negate debris/gas damage, 10 s), Phase Drive (dash
+  through rock, 7 s), Hover Field (free thrust, 8 s), Ward Field (gas/radiation
+  immunity, rest, >=500 m), Nitro Core (drill x4 but x2 heat, 15 s, >=150 m),
+  Last Gasp (survive one fatal hull hit at 1%, armed, >=100 m).
+- **HUD** (`hud.gd`): `show_powerup(def)` — centred, accent-coloured pickup popup
+  ("SALVAGE RECOVERED — origin unknown"); `update_boosts(p)` — a top-right column
+  of colour chips with live countdowns. Prospector Eye widens the ore compass.
+- **Wiring** (`main.gd`): `_process_powerups()` each diving frame — collect,
+  `player.apply_powerup`, popup + `Audio.sfx("powerup")`; also flashes the Last
+  Gasp save via `player.consume_last_gasp()`.
