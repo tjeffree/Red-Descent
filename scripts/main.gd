@@ -29,6 +29,7 @@ const WRECKAGE_WIDTH := 410.0
 
 @onready var player: CharacterBody2D = $Player
 @onready var terrain: TileMapLayer = $Terrain
+@onready var terrain_3d: Node = $Terrain3D
 @onready var debris: Node2D = $Debris
 @onready var damage_numbers: Node2D = $DamageNumbers
 @onready var hud: CanvasLayer = $HUD
@@ -68,6 +69,7 @@ func _ready() -> void:
 	_current_biome = terrain.biome_at_depth(player.current_depth)
 
 	_place_wreckage()
+	terrain_3d.setup(terrain, player)   # 3D cube render; also hides the flat tiles
 
 	Audio.music("dive")
 

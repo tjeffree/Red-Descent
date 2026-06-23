@@ -508,6 +508,15 @@ func get_block_def(cell: Vector2i) -> Dictionary:
 	return BLOCKS[_id_to_index[sid]]
 
 
+## Block-type index (into BLOCKS) for a cell, or -1 if the cell is empty.
+## Used by the 3D terrain renderer to bucket cells onto per-type cube meshes.
+func block_index(cell: Vector2i) -> int:
+	var sid: int = get_cell_source_id(cell)
+	if sid == -1:
+		return -1
+	return _id_to_index.get(sid, -1)
+
+
 func dig(cell: Vector2i, damage: float) -> bool:
 	if not is_solid(cell):
 		return false
