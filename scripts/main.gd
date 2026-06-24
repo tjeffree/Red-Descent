@@ -13,12 +13,11 @@ const ASCENT_PAUSE := 0.5      # brief pause once the surface is reached
 const ASCENT_MAX := 3.5        # safety cap on the ascent animation
 
 # The crashed mother ship resting on the surface — the wreck we smelt Alloy to
-# repair (GameState ship-repair track). Drawn behind the rig over the descent
-# shaft (so the dive reads as launching from the wreck). The four sprites are
-# repair stages (0 = crashed wreck … 3 = fully repaired), picked from how many
+# repair (GameState ship-repair track). A flat 2D sprite (the craft and rig stay 2D
+# against the 3D surface/pit/blocks), drawn over the descent shaft. The four sprites
+# are repair stages (0 = crashed wreck … 3 = fully repaired), picked from how many
 # ship parts have been bought, so the surface ship visibly rebuilds across runs.
-# WRECKAGE_WIDTH is its on-screen width in world px, sized to sit inside the
-# 3x-zoom frame at spawn.
+# WRECKAGE_WIDTH is its on-screen width in world px.
 const WRECKAGE_TEX: Array[String] = [
 	"res://assets/generated/wreckage-0.png",
 	"res://assets/generated/wreckage-1.png",
@@ -32,6 +31,7 @@ const WRECKAGE_WIDTH := 410.0
 @onready var terrain_3d: Node = $Terrain3D
 @onready var debris: Node2D = $Debris
 @onready var damage_numbers: Node2D = $DamageNumbers
+@onready var dig_cracks: Node2D = $DigCracks
 @onready var hud: CanvasLayer = $HUD
 
 var _state: String = "diving"  # diving / ascending / ending
@@ -55,6 +55,7 @@ func _ready() -> void:
 	terrain.debris_container = debris
 	terrain.cavein.connect(_on_cavein)
 	damage_numbers.connect_terrain(terrain)
+	dig_cracks.setup(terrain)
 
 	# Recall always rises to the TRUE surface, regardless of where we launched.
 	_surface_y = terrain.get_start_position().y
@@ -68,13 +69,15 @@ func _ready() -> void:
 	player.current_depth = terrain.depth_meters(player.global_position)
 	_current_biome = terrain.biome_at_depth(player.current_depth)
 
-	_place_wreckage()
-	terrain_3d.setup(terrain, player)   # 3D cube render; also hides the flat tiles
+	terrain_3d.setup(terrain, player, debris)   # 3D cube render; also hides the flat tiles
+	terrain_3d.place_capsule()                  # escape capsule at the shaft bottom (endgame dock)
+	_place_wreckage()                           # surface ship as a flat 2D sprite over the 3D world
 
 	Audio.music("dive")
 
 
-## Drop the crashed ship onto the surface crust, over the descent shaft.
+## Drop the crashed ship onto the surface crust, over the descent shaft. A flat 2D
+## sprite drawn over the 3D world (z_index keeps it behind the rig).
 func _place_wreckage() -> void:
 	var tex: Texture2D = load(WRECKAGE_TEX[_wreckage_stage()])
 	if tex == null or tex.get_width() == 0:
@@ -98,9 +101,9 @@ func _place_wreckage() -> void:
 	add_child(s)
 
 
-## Which repair-stage sprite (0..3) the surface ship should show. The fully
-## rebuilt art (stage 3, on its legs) is reserved for an actually-complete ship;
-## intermediate parts step the hull through stages 0-2.
+## Which repair-stage sprite (0..3) the surface ship should show. The fully rebuilt
+## art (stage 3) is reserved for an actually-complete ship; intermediate parts step
+## the hull through stages 0-2.
 func _wreckage_stage() -> int:
 	if GameState.ship_complete():
 		return WRECKAGE_TEX.size() - 1

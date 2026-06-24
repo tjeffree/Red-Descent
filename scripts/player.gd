@@ -134,8 +134,7 @@ var _facing: int = 1
 var _base_mask: int = 0      # collision mask saved at spawn; dropped while phase-dashing
 var _phasing: bool = false   # true while a Phase Drive dash is passing through rock
 
-@onready var sprite: Sprite2D = $Sprite2D
-@onready var thruster_flame: Polygon2D = $ThrusterFlame
+@onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 
 
 func _ready() -> void:
@@ -166,14 +165,14 @@ func _physics_process(delta: float) -> void:
 	if _ascending:
 		_ascent_speed = minf(_ascent_speed + 1100.0 * delta, 900.0)
 		global_position.y -= _ascent_speed * delta
-		thruster_flame.visible = true
+		sprite.play("thrust")
 		if terrain != null:
 			current_depth = terrain.depth_meters(global_position)
 		return
 
 	if destroyed:
 		_apply_gravity(delta)
-		thruster_flame.visible = false
+		sprite.play("jump")
 		move_and_slide()
 		return
 
@@ -195,8 +194,23 @@ func _physics_process(delta: float) -> void:
 		_apply_magnet()
 	_update_resources(delta)
 
-	thruster_flame.visible = is_thrusting
+	_update_animation()
 	move_and_slide()
+
+
+## Pick the rig pose from its current motion state. The thrust frames carry
+## their own exhaust flames, so there's no separate flame node to toggle.
+func _update_animation() -> void:
+	var anim: String
+	if not is_on_floor():
+		if is_thrusting:
+			anim = "thrust_side" if absf(velocity.x) > 12.0 else "thrust"
+		else:
+			anim = "jump"
+	else:
+		anim = "move" if absf(velocity.x) > 8.0 else "idle"
+	if sprite.animation != anim:
+		sprite.play(anim)
 
 
 ## Environmental pressure rises with depth below the crust: deeper = more

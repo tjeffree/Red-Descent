@@ -1,7 +1,8 @@
 # Red Descent — 2.5D Blocks (3D terrain) — Work-in-progress handoff
 
 **Branch:** `feature/depth-25d` (not yet merged to `main`)
-**Status:** Working prototype of real 3D terrain rendering. Looks right; integration polish remains.
+**Status:** Integration polish complete (cracks, 3D debris, lighting, perf, surface decision).
+Real 3D terrain rendering looks right and is screenshot-verified. See the resolved TODOs below.
 **Goal:** Make the dug-out blocks look like genuine 3D objects (Minecraft-ish) — intrinsic
 side/top faces with correct perspective that shifts as the rig moves — while the character
 stays a 2D sprite.
@@ -101,43 +102,37 @@ Meta-save (delete to reset Alloy/upgrades): `$APPDATA/Godot/app_userdata/Red Des
 
 ---
 
-## TODO — remaining work (resume here)
+## TODO — resolved
 
-### 1. Restore the dig-crack overlay  (small)
-Hiding the tilemap (`terrain.visible = false`) also hid its child `Main/Terrain/DigCracks`
-(`scripts/dig_cracks.gd`), so there's **no block-fracturing feedback while drilling**.
-- Fix: reparent `DigCracks` out from under `Terrain` (e.g. make it a sibling under `Main`, kept
-  in the 2D layer so it draws on top at z = 0), or otherwise hide only the tile *rendering* while
-  keeping the cracks visible. `dig_cracks.gd` reads `get_parent().damaged_cells()` and draws in
-  the parent's local space — if reparented, give it a `terrain` reference and draw in terrain-
-  local/world space (Terrain is at the origin, so world == terrain-local here).
+### 1. Restore the dig-crack overlay  ✅ DONE
+`DigCracks` reparented out from under the hidden `Terrain` to a sibling under `Main` (in `main.tscn`),
+so it draws on top of the 3D layer (below the rig) at z = 0. `dig_cracks.gd` now takes a terrain
+reference via `setup(terrain)` (wired from `main.gd::_ready`) instead of `get_parent()`. Terrain is
+at the origin, so terrain-local positions are still this node's local space. Screenshot-verified.
 
-### 2. Make cave-in debris 3D  (medium)
-Cave-in chunks (`scenes/debris.tscn` + `scripts/debris.gd`, spawned by `world.gd::_spawn_debris`
-into `Main/Debris`) are `RigidBody2D` and render as **flat 2D sprites** — they look pasted-on
-against the 3D rock. Options: spawn matching 3D cube(s) in the SubViewport that track each 2D
-debris body's position/rotation each frame (keep 2D physics authoritative, mirror it in 3D), or
-fully re-home debris into 3D. Simplest first pass: in `terrain_3d.gd`, add a small pool of cube
-`MeshInstance3D`s that mirror `Main/Debris` children's transforms each frame.
+### 2. Make cave-in debris 3D  ✅ DONE
+`terrain_3d.gd` builds a pool of `DEBRIS_POOL` cube `MeshInstance3D`s (each with its own material).
+`_update_debris()` mirrors each live `Main/Debris` child's `global_position`, z-rotation (negated for
+the 3D y-flip), and tile texture onto a pooled cube every frame; spare cubes are hidden. 2D physics
+stays authoritative. Screenshot-verified (chunks read as 3D rock falling through the shaft).
 
-### 3. Tune the lighting for more 3D pop  (small, taste)
-Current look is fairly flat/bright (ambient-dominated). Increase top-vs-side contrast and make the
-headlamp more atmospheric. Knobs in `terrain_3d.gd`: lower `AMBIENT_ENERGY`, raise `SUN_ENERGY`
-and tune `SUN_DIR` for stronger directional shading; raise `LAMP_ENERGY`/tune `LAMP_RANGE` and
-darken `BG_COLOR`/`AMBIENT` for a moodier shaft. Verify with the screenshot harness.
+### 3. Tune the lighting for more 3D pop  ✅ DONE
+Tuned in `terrain_3d.gd`: `AMBIENT_ENERGY` 0.55→0.28, `SUN_ENERGY` 1.15→1.55, `SUN_DIR` more
+top-down, darker `BG_COLOR`/`AMBIENT`, `LAMP_ENERGY` 3.0→3.6 / `LAMP_RANGE`→185. Also `FOV_Y`
+42→50 and `CUBE_DEPTH` 16→18 for stronger perspective / chunkier sides. Reads clearly 3D and moody.
 
-### 4. Surface / sky transition + wreckage  (medium)
-Above `SURFACE_Y` is open sky; the 3D view shows the dark `BG_COLOR` there. Check how the launch
-surface reads. The crashed-ship **wreckage** (`main.gd::_place_wreckage`, a 2D `Sprite2D` at
-`z_index = -5`) is flat 2D and will look pasted against the 3D surface. Decide: keep it 2D (cheap,
-acceptable), give the sky a proper backdrop, and confirm the recall/ascent and dock framing still
-look right.
+### 4. Surface / sky transition + wreckage  ✅ DECIDED (kept 2D)
+The crashed-ship **wreckage** stays a 2D `Sprite2D` foreground object resting on the 3D terrain —
+it reads fine (verified). The open sky above shows the dark env `BG_COLOR`, which is atmospheric and
+acceptable. A proper scrolling sky backdrop was **deferred**: it would require making the SubViewport
+`transparent_bg` and adding a separate backdrop `CanvasLayer` (layer < -10) that scrolls with the
+camera, and risks regressing how dug-out voids render underground. Revisit if the dark sky bothers.
 
-### 5. Performance pass  (watch)
-`_rebuild_instances()` rebuilds all visible cube transforms every frame from the tilemap. Smooth
-in the prototype, but profile in dense/deep areas (Mantle/Ruins) and when the view is large. If
-needed: only rebuild on terrain change or when the visible cell window moves, instead of every
-frame; or cap `VIEW_MARGIN`.
+### 5. Performance pass  ✅ DONE
+Added `world.gd::content_version` (an int bumped on every dig/cave-in `erase_cell`).
+`terrain_3d.gd::_rebuild_instances` caches the last visible cell window + version and **skips the
+rebuild** when neither changed — the cube transforms are world-space, so a static view (or slow
+sub-cell drift) costs nothing. Rebuilds only on a window move or a terrain change.
 
 ### Other things to confirm later
 - The 2D world-space overlays that should keep working on top at z = 0: damage numbers

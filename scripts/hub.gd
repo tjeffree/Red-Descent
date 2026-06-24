@@ -8,7 +8,7 @@ extends Node2D
 ##   [Arrows/D-pad] select  [E]/[Enter] buy/repair  [Shift] launch depth  [Space] descend
 
 const FONT_PATH := "res://assets/kenney_ui_pack_scifi/Font/Kenney Future Narrow.ttf"
-const RIG_TEX := "res://assets/kenney_pixel_platformer/Tiles/Characters/tile_0000.png"
+const RIG_TEX := "res://assets/generated/rig/move_0.png"
 const DIVE_SCENE := "res://scenes/main.tscn"
 
 const GRID_COLS := 3
@@ -91,11 +91,12 @@ func _ready() -> void:
 	ground.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(ground)
 
+	# The rig, standing on the surface ground. The art is a high-res frame
+	# (feet at ~y=472 of 788), so scale it down and seat its feet on the ground.
 	var rig := TextureRect.new()
 	rig.texture = load(RIG_TEX)
-	rig.stretch_mode = TextureRect.STRETCH_KEEP_CENTERED
-	rig.scale = Vector2(4, 4)
-	rig.position = Vector2(1040, 470)
+	rig.scale = Vector2(0.36, 0.36)
+	rig.position = Vector2(773, 455)   # feet on the ground top (y≈605), clear of the control hints
 	rig.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(rig)
 

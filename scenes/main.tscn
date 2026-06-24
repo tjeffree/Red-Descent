@@ -14,11 +14,11 @@ script = ExtResource("1_main")
 [node name="Terrain" type="TileMapLayer" parent="."]
 script = ExtResource("2_world")
 
-[node name="DigCracks" type="Node2D" parent="Terrain"]
-script = ExtResource("5_cracks")
-
 [node name="Terrain3D" type="Node" parent="."]
 script = ExtResource("7_t3d")
+
+[node name="DigCracks" type="Node2D" parent="."]
+script = ExtResource("5_cracks")
 
 [node name="Player" parent="." instance=ExtResource("3_player")]
 

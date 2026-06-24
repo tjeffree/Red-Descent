@@ -108,6 +108,10 @@ var _mat := FastNoiseLite.new()
 var _ore := FastNoiseLite.new()
 var _haz := FastNoiseLite.new()      # mantle hazard placement
 
+## Bumped whenever a cell is removed (dig / cave-in). The 3D renderer watches this
+## to skip rebuilding its cube instances on frames where nothing changed.
+var content_version: int = 0
+
 
 func _ready() -> void:
 	tile_set = _build_tileset()
@@ -533,6 +537,7 @@ func dig(cell: Vector2i, damage: float) -> bool:
 	var show_numbers: bool = GameState.damage_numbers
 	if hp <= 0.0:
 		erase_cell(cell)
+		content_version += 1
 		_block_hp.erase(cell)
 		_ore_cells.erase(cell)
 		if show_numbers:
@@ -684,6 +689,7 @@ func _collapse_after_warning(start: Vector2i) -> void:
 	while collapsed < MAX_COLLAPSE and c.y > SURFACE_Y and is_solid(c):
 		var tex: Texture2D = load(get_block_def(c)["tex"])
 		erase_cell(c)
+		content_version += 1
 		_block_hp.erase(c)
 		_ore_cells.erase(c)
 		_spawn_debris(tex, c)
