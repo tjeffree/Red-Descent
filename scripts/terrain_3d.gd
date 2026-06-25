@@ -37,7 +37,47 @@ const LAMP_FWD := 40.0       # how far in front of the front plane the lamp sits
 const DEBRIS_POOL := 32      # max cave-in chunks shown as 3D cubes at once
 const DEBRIS_SIZE := 15.0    # cube edge for a chunk (matches the 2D sprite's ~15px)
 
-const SURFACE_SIZE := Vector2(16000.0, 13000.0)   # the horizon ground plane (px), w x depth
+# Cave-wall backdrop standing just behind the rock cubes, so dug tunnels reveal a
+# textured recess instead of flat BG_COLOR.
+const BACKWALL_TEX := "res://assets/cave-background.png"
+const BACKWALL_Z := -CUBE_DEPTH - 1.0    # 1px behind the cube backs (no z-fight)
+const BACKWALL_REPEAT := 540.0           # world px per texture repeat (square, no stretch)
+const BACKWALL_TINT := Color(0.6, 0.58, 0.58)   # albedo: warms under the headlamp near the rig
+# The scene lights point INTO the screen, so the camera-facing wall front gets only
+# dim ambient. A low self-illumination gives it a baseline glow so the cave texture
+# reads as a recess; kept well under the lit rock so depth still pops.
+const BACKWALL_GLOW := Color(0.42, 0.38, 0.37)
+const BACKWALL_GLOW_ENERGY := 0.1
+
+# Martian sky: a far backdrop plane filling the view above the dig. The dig blocks
+# (opaque, foreground) occlude it below their tops, so the sky reads as coming
+# straight down to the surface line. Unshaded (constant daylight) and tiled, so the
+# dusty bands read at a natural scale without distortion.
+const SKY_TEX := "res://assets/martian-sky.png"
+const SKY_Z := -13000.0                  # far behind the mountains
+const SKY_SIZE := Vector2(48000.0, 28000.0)
+const SKY_REPEAT := 5000.0               # world px per texture repeat (square, no stretch)
+const SKY_TINT := Color(0.9, 0.86, 0.84) # slightly toned down from the raw texture
+const CAM_FAR := 20000.0                 # reach past the ground far edge to the sky
+
+# Parallax mountains: two unshaded billboard layers standing on the ground between
+# the camera and the sky. The perspective camera gives the parallax for free — the
+# near butte sits closer than the far ridge, so it slides faster as the rig pans
+# along the surface. Keyed/cropped art from _tools/make_mountains.py.
+const MTN_FAR_TEX := "res://assets/generated/martian-surface-far.png"
+const MTN_NEAR_TEX := "res://assets/generated/martian-surface-near.png"
+# The feet are re-seated every frame onto the surface world-line as the live camera
+# sees it (see _seat_mountains), so the layers always stand on the dig surface line
+# regardless of camera distance/height — z is now free to pick purely for apparent
+# size and parallax (closer = bigger + faster). LIFT raises the foot above the line
+# (world px; negative sinks it behind the dig).
+const MTN_FAR_Z := -1800.0      # distant ridge (slower parallax)
+const MTN_FAR_H := 430.0        # world height of the far ridge (spans wider than screen)
+const MTN_FAR_LIFT := 0.0
+const MTN_NEAR_Z := -600.0      # near buttes (faster parallax)
+const MTN_NEAR_H := 400.0       # world height of a near butte
+const MTN_NEAR_DX := 720.0      # buttes sit this far either side of the shaft centre
+const MTN_NEAR_LIFT := 0.0
 
 var terrain: TileMapLayer
 var player: Node2D
@@ -49,6 +89,9 @@ var _cam: Camera3D
 var _lamp: OmniLight3D
 var _mmi: Array[MultiMeshInstance3D] = []   # one per (block type, art variant): idx*VARIANTS + v
 var _debris_pool: Array[MeshInstance3D] = []  # reused cubes mirroring 2D debris
+var _mtns: Array = []   # backdrop billboards: each {mi, half_h, z_abs, lift}, re-seated each frame
+var _last_seat_eye: float = INF   # camera eye-y / distance at the last mountain re-seat
+var _last_seat_dist: float = 0.0
 var _tile: float = 18.0
 
 # Rebuild-skip cache: the cube transforms are world-space, so as long as the same
@@ -67,43 +110,130 @@ func setup(t: TileMapLayer, p: Node2D, debris_container: Node2D) -> void:
 	_cam2d = player.get_node("Camera2D")
 	_tile = float(terrain.TILE_SIZE)
 	_build()
+	_build_backwall()
 	# Hide the flat tiles (the 3D cubes replace them) WITHOUT hiding the terrain's
 	# child overlays — buried-cache glints live under the tilemap. self_modulate
 	# affects only this node's own drawing (the tiles), not its children; modulate
 	# would propagate and hide them too. Collision is unaffected either way.
 	terrain.self_modulate = Color(1, 1, 1, 0)
-	_build_surface()
+	_build_sky()
+	_build_mountains()
 
 
-## A single large horizontal ground plane at the surface, level with the rock tops,
-## extending out past the wreck and back to the horizon — so the surface reads as
-## open Martian ground rather than black void above the dig. Lit by the top-down
-## sun; sits a hair below the rock tops to avoid z-fighting with them.
-func _build_surface() -> void:
-	if _sv == null or terrain == null:
-		return
+## Build a textured vertical backdrop plane (FACE_Z, double-sided, mipmapped) sized
+## `size` at world `pos`, add it to the 3D world, and return it. The caller tunes the
+## distinct material bits (tint, shading, transparency, tiling) via its material —
+## reachable as `(mi.mesh as PlaneMesh).material`.
+func _add_backdrop(tex: Texture2D, size: Vector2, pos: Vector3) -> MeshInstance3D:
 	var mat := StandardMaterial3D.new()
-	mat.albedo_texture = load(terrain.BLOCKS[0]["tex"])   # Dirt
-	# Mipmapped so the ground tiling compresses to the horizon without shimmer,
-	# while staying crisp/pixelated up close.
-	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
-	mat.roughness = 1.0
-	mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
-	# Tile the dirt across the plane at the block's native size (one tile per cell).
-	mat.uv1_scale = Vector3(SURFACE_SIZE.x / _tile, SURFACE_SIZE.y / _tile, 1.0)
-
-	var plane := PlaneMesh.new()       # default: XZ plane, facing +Y (horizontal)
-	plane.size = SURFACE_SIZE
+	mat.albedo_texture = tex
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED   # face the camera regardless of winding
+	var plane := PlaneMesh.new()
+	plane.orientation = PlaneMesh.FACE_Z   # vertical XY plane (faces the camera at +Z)
+	plane.size = size
 	plane.material = mat
-
 	var mi := MeshInstance3D.new()
 	mi.mesh = plane
-	var surface_top: float = float(terrain.SURFACE_Y) * _tile
-	mi.position = Vector3(
-		terrain.get_start_position().x,
-		-surface_top - 1.0,            # 1px under the rock tops (no z-fight)
-		-SURFACE_SIZE.y * 0.5)         # near edge at z=0 (the digger): only recedes away
+	mi.position = pos
 	_sv.add_child(mi)
+	return mi
+
+
+## A tiled cave-wall image standing just behind the rock cubes, so dug-out tunnels
+## reveal a textured cave recess instead of flat BG_COLOR. Spans the full descent —
+## from the surface line down to the bedrock floor — across the world width. Lit by
+## the scene lights and the rig headlamp, so it falls to dark away from the rig and
+## reads as real depth behind the rock.
+func _build_backwall() -> void:
+	if _sv == null or terrain == null:
+		return
+	var top: float = float(terrain.SURFACE_Y) * _tile
+	var height: float = float(terrain.H) * _tile - top
+	var width: float = float(terrain.W) * _tile
+	var pos := Vector3(terrain.get_start_position().x, -(top + height * 0.5), BACKWALL_Z)
+
+	var mat := (_add_backdrop(load(BACKWALL_TEX), Vector2(width, height), pos).mesh as PlaneMesh).material as StandardMaterial3D
+	mat.albedo_color = BACKWALL_TINT
+	mat.roughness = 1.0
+	mat.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	mat.uv1_scale = Vector3(width / BACKWALL_REPEAT, height / BACKWALL_REPEAT, 1.0)
+	mat.emission_enabled = true
+	mat.emission_texture = mat.albedo_texture
+	mat.emission = BACKWALL_GLOW
+	mat.emission_energy_multiplier = BACKWALL_GLOW_ENERGY
+
+
+## The Martian sky: a large unshaded plane far behind the dig, centred on eye level
+## so it fills the whole view above the surface. The dig blocks (opaque foreground)
+## occlude it below their tops, so it reads as coming straight down to the surface
+## line; the cave backwall hides it underground.
+func _build_sky() -> void:
+	if _sv == null or terrain == null:
+		return
+	# Centred on eye level (the surface line) so the plane fills above AND below the
+	# horizon; the dig blocks occlude the part below the surface line.
+	var pos := Vector3(terrain.get_start_position().x, -float(terrain.SURFACE_Y) * _tile, SKY_Z)
+	var mat := (_add_backdrop(load(SKY_TEX), SKY_SIZE, pos).mesh as PlaneMesh).material as StandardMaterial3D
+	mat.albedo_color = SKY_TINT
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED   # constant daylight, ignores scene lights
+	mat.uv1_scale = Vector3(SKY_SIZE.x / SKY_REPEAT, SKY_SIZE.y / SKY_REPEAT, 1.0)
+
+
+## Parallax mountain layers: a distant ridge and a pair of near buttes, standing on
+## the dig surface between the sky and the dig. Both are unshaded alpha billboards so
+## they read as daylit backdrop; the z gap gives parallax (the nearer buttes slide
+## faster as the rig moves along the surface). Feet are re-seated each frame.
+func _build_mountains() -> void:
+	if _sv == null or terrain == null:
+		return
+	var cx: float = terrain.get_start_position().x
+	# Far ridge: one wide layer centred on the shaft.
+	_add_mountain(MTN_FAR_TEX, MTN_FAR_H, cx, MTN_FAR_Z, MTN_FAR_LIFT, false)
+	# Near buttes: flank the shaft so the wreck sits between them; mirror the left one.
+	_add_mountain(MTN_NEAR_TEX, MTN_NEAR_H, cx - MTN_NEAR_DX, MTN_NEAR_Z, MTN_NEAR_LIFT, true)
+	_add_mountain(MTN_NEAR_TEX, MTN_NEAR_H, cx + MTN_NEAR_DX, MTN_NEAR_Z, MTN_NEAR_LIFT, false)
+	# Initial seat happens on the first _process (the camera isn't positioned yet here).
+
+
+## One mountain billboard: a vertical alpha plane scaled to `height` (px) at its
+## texture's aspect, centred at `center_x`, standing at depth `z`. `flip` mirrors it
+## horizontally. Its vertical position is set by _seat_mountains(); `lift` raises its
+## foot above the surface line. Registered in _mtns for per-frame re-seating.
+func _add_mountain(tex_path: String, height: float, center_x: float, z: float, lift: float, flip: bool) -> void:
+	var tex: Texture2D = load(tex_path)
+	if tex == null or tex.get_height() == 0:
+		return
+	var width: float = height * (float(tex.get_width()) / float(tex.get_height()))
+	var mi := _add_backdrop(tex, Vector2(width, height), Vector3(center_x, 0.0, z))  # y set by _seat_mountains()
+	var mat := (mi.mesh as PlaneMesh).material as StandardMaterial3D
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED   # daylit backdrop, not cave-lit
+	if flip:
+		mi.scale = Vector3(-1.0, 1.0, 1.0)
+	_mtns.append({"mi": mi, "half_h": height * 0.5, "z_abs": absf(z), "lift": lift})
+
+
+## Re-seat each backdrop billboard so its foot lands exactly on the dig surface line
+## as the live camera projects it. Two points share a screen row when
+## (worldY - eyeY) / view_distance is equal; solving for the foot at depth z that
+## matches the surface point (worldY = -surface_top, depth = cam distance) gives the
+## foot's world-y. Independent of camera height/zoom, so the feet stay planted.
+## `dist` is the z=0 plane distance (already computed by the caller each frame).
+func _seat_mountains(dist: float) -> void:
+	if _cam == null or terrain == null or dist <= 0.0:
+		return
+	var eye_y: float = _cam.position.y
+	# Seating depends only on the camera's height and distance — skip the work (and
+	# the rendering-server position writes) on frames where neither moved.
+	if eye_y == _last_seat_eye and dist == _last_seat_dist:
+		return
+	_last_seat_eye = eye_y
+	_last_seat_dist = dist
+	var top_to_eye: float = -float(terrain.SURFACE_Y) * _tile - eye_y
+	for m in _mtns:
+		var foot: float = eye_y + top_to_eye * (dist + m["z_abs"]) / dist + m["lift"]
+		(m["mi"] as MeshInstance3D).position.y = foot + m["half_h"]
 
 
 ## Instance a .glb into the 3D world (so the shared camera + lights touch it),
@@ -202,7 +332,7 @@ func _build() -> void:
 	_cam.projection = Camera3D.PROJECTION_PERSPECTIVE
 	_cam.fov = FOV_Y
 	_cam.near = 1.0
-	_cam.far = 12000.0   # far enough that the surface ground plane reaches the horizon
+	_cam.far = CAM_FAR   # far enough to reach the ground far edge and the sky behind it
 	_sv.add_child(_cam)
 
 	# One textured cube MultiMesh per (block type, art variant). Cells are bucketed
@@ -316,6 +446,7 @@ func _process(_delta: float) -> void:
 
 	_rebuild_instances(center)
 	_update_debris()
+	_seat_mountains(dist)   # keep the backdrop planted on the surface line as the camera moves
 
 
 ## Mirror each live 2D debris chunk onto a pooled 3D cube (2D physics stays

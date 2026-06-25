@@ -1,6 +1,6 @@
 # Red Descent — Endgame Gating Changes
 
-**Status:** proposed (not yet implemented)
+**Status:** implemented (2026-06-25)
 **Owner:** design
 **Relates to:** GDD §7 (Climax & Endgame), `scripts/endgame.gd`, `scripts/main.gd`, `scripts/game_state.gd`
 

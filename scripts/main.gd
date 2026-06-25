@@ -204,17 +204,24 @@ func _process_diving(delta: float) -> void:
 		_die("POWER DEPLETED — battery dead")
 		return
 
-	# At the capsule terminal (shaft bottom) docking takes over from recall — this
-	# begins the endgame (GDD §7): the rig is sacrificed to launch the capsule.
+	# At the capsule terminal (shaft bottom) docking takes over from recall. The
+	# capsule is inert until the surface wreckage is fully restored — only then can
+	# the rig carry a charge big enough to wake it (see the endgame-gating doc).
 	if player.global_position.distance_to(terrain.capsule_position()) < DOCK_RANGE:
 		hud.set_return_available(false)
-		hud.set_dock_prompt("[E] DOCK — give the capsule the rig's power")
-		if Input.is_action_just_pressed("interact"):
-			hud.set_dock_prompt("")
-			Audio.stop_oneshots()   # cut any in-flight alarm before the cinematic
-			Audio.ui("confirm")
-			Audio.stop_loops()
-			get_tree().change_scene_to_file(ENDGAME_SCENE)
+		if GameState.ship_complete():
+			# Wreckage whole → dock and begin the endgame (GDD §7): the rig is
+			# sacrificed to launch the capsule.
+			hud.set_dock_prompt("[E] DOCK — give the capsule the rig's power")
+			if Input.is_action_just_pressed("interact"):
+				hud.set_dock_prompt("")
+				Audio.stop_oneshots()   # cut any in-flight alarm before the cinematic
+				Audio.ui("confirm")
+				Audio.stop_loops()
+				get_tree().change_scene_to_file(ENDGAME_SCENE)
+		else:
+			# Capsule is dead — the rig can't carry the power yet. Bounce home.
+			_reject_dock()
 		return
 	hud.set_dock_prompt("")
 
@@ -286,6 +293,29 @@ func _process_powerups() -> void:
 
 	if player.consume_last_gasp():
 		hud.flash("!! LAST GASP — systems hold at 1% !!")
+
+
+## Reached the capsule terminal but the wreckage isn't restored yet — the capsule
+## has no power and the rig can't carry a charge big enough to wake it. There's
+## nothing to do at a dead terminal, so auto-return to the surface with a banner
+## that names the wreckage as the reason. Ore is still banked (banked = true): the
+## trip down still pays out, since the player will hit the bottom several times
+## before the wreckage is whole. Reuses the recall ascent path — NOT the endgame
+## teardown — so it stays in the dive and never sets GameState.escaped.
+func _reject_dock() -> void:
+	hud.set_dock_prompt("")
+	hud.set_return_available(false)
+	var parts_left: int = GameState.SHIP_PARTS.size() - GameState.repaired_count()
+	GameState.record_run("CAPSULE DEAD — rig can't carry the power", player.ore_collected, player.current_depth, true)
+	hud.show_banner(
+		"THE CAPSULE WON'T WAKE\n" +
+		"The rig can't carry a charge this big — not until the wreckage is whole.\n" +
+		"%d ship system(s) still to restore. Ascending...  (+%d alloy)" % [parts_left, player.ore_collected],
+		Color(0.95, 0.75, 0.25))
+	Audio.ui("confirm")
+	player.start_ascent()
+	_state = "ascending"
+	_timer = ASCENT_MAX
 
 
 ## Recall: bank ore, then play the ascent animation back to the surface.

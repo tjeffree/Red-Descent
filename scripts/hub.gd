@@ -128,7 +128,7 @@ func _ready() -> void:
 	box.add_child(_spacer(4))
 	var ship_hdr := HBoxContainer.new()
 	ship_hdr.add_theme_constant_override("separation", 16)
-	ship_hdr.add_child(_label("SHIP REPAIR", 20))
+	ship_hdr.add_child(_label("SHIP REPAIR — CAPSULE POWER", 20))
 	_ship_bar = _label("", 18)
 	ship_hdr.add_child(_ship_bar)
 	box.add_child(ship_hdr)
@@ -391,9 +391,16 @@ func _refresh() -> void:
 	# Ship progress bar + completion teaser.
 	var total: int = GameState.SHIP_PARTS.size()
 	var done_n := int(round(GameState.ship_progress() * total))
-	_ship_bar.text = "REPAIRS  %d/%d" % [done_n, total]
+	_ship_bar.text = "CAPSULE POWER  %d/%d systems" % [done_n, total]
 	_ship_bar.add_theme_color_override("font_color", COL_MAXED if GameState.ship_complete() else COL_TEXT)
-	_ship_teaser.text = "HULL INTEGRITY RESTORED — but the drive telemetry reads… wrong." if GameState.ship_complete() else ""
+	# When incomplete, signpost the gate: the capsule can't launch until the wreckage
+	# is whole. When complete, the original drive-telemetry teaser.
+	if GameState.ship_complete():
+		_ship_teaser.text = "HULL INTEGRITY RESTORED — but the drive telemetry reads… wrong."
+		_ship_teaser.add_theme_color_override("font_color", COL_MAXED)
+	else:
+		_ship_teaser.text = "Restore every system to power the escape capsule — the rig can't carry the charge until the wreckage is whole."
+		_ship_teaser.add_theme_color_override("font_color", COL_TEXT)
 
 	_refresh_launch()
 

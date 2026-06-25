@@ -150,6 +150,16 @@ All in `world.gd` (plus one Ruins lore beat). The world now extends past the Man
 - **Docking** (`main.gd` + `hud.gd`): within `DOCK_RANGE` of the capsule the HUD shows a dock
   prompt (top-priority status, via `hud.set_dock_prompt`) instead of the recall prompt; `interact`
   there changes to `scenes/endgame.tscn`.
+- **Endgame gating** (`main.gd` `_reject_dock`, `lore.gd`, `hub.gd` — see
+  `docs/Red_Descent_Endgame_Gating_Changes.md`): docking is gated on `GameState.ship_complete()`.
+  The capsule is inert until the surface wreckage is fully restored — narratively the rig can't
+  carry a charge that big until the salvaged systems harden it. With the wreckage **incomplete**,
+  reaching the terminal does **not** start the endgame: `_reject_dock()` banks the run
+  (`record_run(..., banked = true)`, so the dive still pays out), shows a banner naming the wreckage
+  and the parts remaining, and auto-ascends via the recall path — it never sets `escaped`. With the
+  wreckage **complete**, docking behaves exactly as before. Feedback: a Ruins-entry transmission
+  (`t_capsule_dead`, gated by the new `ship_incomplete` trigger flag in `Lore.fires`) and hub
+  signposting ("CAPSULE POWER  N/4 systems" + a restore-to-escape teaser).
 - **The Sacrifice** (`game_state.gd`): `sacrifice_rig()` permanently clears every rig upgrade
   (`levels = {}`) and sets a persisted `escaped` flag — the cost of powering the capsule.
 - **Cinematic** (`scripts/endgame.gd` + `scenes/endgame.tscn`): a five-beat scripted sequence —
