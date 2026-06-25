@@ -19,6 +19,7 @@ const FONT_PATH := "res://assets/kenney_ui_pack_scifi/Font/Kenney Future Narrow.
 const MENU_SCENE := "res://scenes/main_menu.tscn"
 const SILO_VIDEO := "res://assets/video/silo-reveal.ogv"
 const LAUNCH_VIDEO := "res://assets/video/launch.ogv"
+const LAUNCH_VIDEO_2 := "res://assets/video/launch-2.ogv"   # plays right after LAUNCH_VIDEO
 
 # Beat durations (seconds). LOCKDOWN: GDD §7 specifies a 60 s lockdown; tuned to
 # 30 here for pacing — bump it back up if you want the full vigil.
@@ -43,6 +44,7 @@ var _beat := -1
 var _crushed := false
 var _debris_spawn := 0.0
 var _last_tick := -1
+var _launch_part := 0          # which launch clip is playing (1 = launch, 2 = launch-2)
 
 
 func _ready() -> void:
@@ -129,8 +131,9 @@ func _enter(phase: String) -> void:
 			_countdown.text = ""
 			_title.text = "LAUNCH"
 			_subtitle.text = "Toward a pale blue dot you've only seen in photographs."
+			_launch_part = 1
 			if not _play_video(LAUNCH_VIDEO):
-				pass
+				pass   # no clip — the LAUNCH_SECS timer advances to "end"
 		"end":
 			_stop_video()
 			_bg.color = Color(0.02, 0.03, 0.06, 1.0)
@@ -237,7 +240,12 @@ func _on_video_finished() -> void:
 	if _phase == "reveal":
 		_enter("transfer")
 	elif _phase == "launch":
-		_enter("end")
+		# launch.ogv just finished — roll straight into launch-2.ogv if it exists,
+		# otherwise (or after launch-2) close on the end card.
+		if _launch_part == 1 and _play_video(LAUNCH_VIDEO_2):
+			_launch_part = 2
+		else:
+			_enter("end")
 
 
 func _unhandled_input(event: InputEvent) -> void:

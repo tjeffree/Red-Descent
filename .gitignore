@@ -21,6 +21,10 @@ assets/wreckage-model/*_normal.png.import
 assets/wreckage-model/wreckage-model-*_*.jpg
 assets/wreckage-model/wreckage-model-*_*.jpg.import
 
+# Source video (mp4). Godot plays the converted .ogv (committed); the mp4s are
+# the editing sources and stay local only.
+*.mp4
+
 # OS / editor
 .DS_Store
 Thumbs.db
