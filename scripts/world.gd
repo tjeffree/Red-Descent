@@ -18,6 +18,12 @@ const H: int = 533
 const SURFACE_Y: int = 10
 const METERS_PER_TILE: float = 2.5
 
+# The surface crust directly beneath the wreckage is made indestructible Bulkhead so
+# the player can't dig out from under the ship. WRECK_ANCHOR_HALF_W spans the hull
+# footprint (±tiles from centre); the whole span is solid, so the player must travel
+# along the surface past the ship to find a spot to dig in — and the first ore.
+const WRECK_ANCHOR_HALF_W: int = 9
+
 # Rows of indestructible bedrock at the very bottom (below the Ruins).
 const BEDROCK_ROWS: int = 3
 
@@ -29,18 +35,26 @@ const MANTLE_END_M := 1000.0   # Ruins begin here (rigid, indestructible archite
 
 # Block definitions. `hardness` = HP (seconds at drill_power 1.0).
 # `heat` = heat units/sec while drilling (negative = cooling).
-# `modulate` tints the (shared) texture — used to give the Ruins a cold/metallic
-# look. `indestructible` blocks refuse the drill (the Ruins' rigid architecture).
+# `tex` is variant 0 (the canonical art, used for the invisible logic tilemap and
+# as a fallback); every block also has VARIANTS sliced tiles at
+# `res://assets/generated/tiles/<name lower>_<v>.png` — see variant_tex_path().
+# `modulate` tints the texture; `indestructible` blocks refuse the drill.
+const VARIANTS: int = 9
 const BLOCKS: Array = [
-	{ "name": "Dirt",       "tex": "res://assets/generated/mars_dirt.png",                                   "hardness": 0.45, "heat": 7.0 },
-	{ "name": "Rock",       "tex": "res://assets/generated/mars_rock.png",                                   "hardness": 1.10, "heat": 16.0 },
-	{ "name": "Basalt",     "tex": "res://assets/generated/mars_basalt.png",                                 "hardness": 2.00, "heat": 42.0 },
-	{ "name": "Permafrost", "tex": "res://assets/generated/mars_permafrost.png",                             "hardness": 0.90, "heat": -30.0 },
-	{ "name": "Ore",        "tex": "res://assets/generated/mars_ore.png",                                    "hardness": 1.30, "heat": 20.0 },
+	{ "name": "Dirt",       "tex": "res://assets/generated/tiles/dirt_0.png",       "hardness": 0.45, "heat": 7.0 },
+	{ "name": "Rock",       "tex": "res://assets/generated/tiles/rock_0.png",       "hardness": 1.10, "heat": 16.0 },
+	{ "name": "Basalt",     "tex": "res://assets/generated/tiles/basalt_0.png",     "hardness": 2.00, "heat": 42.0 },
+	{ "name": "Permafrost", "tex": "res://assets/generated/tiles/permafrost_0.png", "hardness": 0.90, "heat": -30.0 },
+	{ "name": "Ore",        "tex": "res://assets/generated/tiles/ore_0.png",        "hardness": 1.30, "heat": 20.0 },
 	# --- Ruins (Phase 8) ---
-	{ "name": "Bulkhead",   "tex": "res://assets/kenney_pixel_platformer_blocks/Tiles/Marble/tile_0000.png", "hardness": 999.0, "heat": 0.0, "indestructible": true, "modulate": Color(0.52, 0.64, 0.82) },
-	{ "name": "Vault",      "tex": "res://assets/kenney_pixel_platformer_blocks/Tiles/Stone/tile_0000.png",  "hardness": 4.0, "heat": 12.0, "modulate": Color(0.80, 0.58, 0.34) },
+	{ "name": "Bulkhead",   "tex": "res://assets/generated/tiles/bulkhead_0.png",   "hardness": 999.0, "heat": 0.0, "indestructible": true },
+	{ "name": "Vault",      "tex": "res://assets/generated/tiles/vault_0.png",      "hardness": 4.0, "heat": 12.0 },
 ]
+
+
+## Filesystem path of variant `v` (0..VARIANTS-1) of block-type `index` (into BLOCKS).
+func variant_tex_path(index: int, v: int) -> String:
+	return "res://assets/generated/tiles/%s_%d.png" % [String(BLOCKS[index]["name"]).to_lower(), v]
 
 const DIRT := 0
 const ROCK := 1
@@ -95,6 +109,7 @@ var _dmg_last_ms: Dictionary = {}   # cell -> Time.get_ticks_msec() of the last 
 var _source_ids: Array[int] = []
 var _id_to_index: Dictionary = {}
 var _block_hp: Dictionary = {}
+var _cell_variant: Dictionary = {}   # Vector2i -> int (0..VARIANTS-1), art variety
 var _ore_cells: Dictionary = {}      # Vector2i -> true, for the ore compass
 var _hazard_cells: Dictionary = {}   # Vector2i -> String ("gas"|"lava"|"radiation")
 var _bedrock_cells: Dictionary = {}  # Vector2i -> true, indestructible floor
@@ -128,8 +143,9 @@ func _build_tileset() -> TileSet:
 	var h: float = TILE_SIZE / 2.0
 	for i in BLOCKS.size():
 		var source := TileSetAtlasSource.new()
-		source.texture = load(BLOCKS[i]["tex"])
-		source.texture_region_size = Vector2i(TILE_SIZE, TILE_SIZE)
+		var tex: Texture2D = load(BLOCKS[i]["tex"])
+		source.texture = tex
+		source.texture_region_size = tex.get_size()   # 32px art; layer is invisible (3D cubes draw)
 		source.create_tile(Vector2i.ZERO)
 		var sid: int = ts.add_source(source)
 
@@ -185,6 +201,12 @@ func _generate() -> void:
 				continue                      # open sky
 
 			var depth_m: float = float(y - SURFACE_Y) * METERS_PER_TILE
+
+			# Surface crust under the wreckage: a solid indestructible anchor for the
+			# hull, so the player must travel along the surface to dig in.
+			if y == SURFACE_Y and absi(x - W / 2) <= WRECK_ANCHOR_HALF_W:
+				_place(x, y, BULKHEAD)
+				continue
 
 			# The Ruins (>= 1000 m): fill solid with indestructible Bulkhead; the
 			# rigid architecture (shaft/rooms/doors) is carved out afterwards.
@@ -496,7 +518,16 @@ func _tag_hazard(cell: Vector2i, depth_m: float) -> void:
 
 
 func _place(x: int, y: int, index: int) -> void:
-	set_cell(Vector2i(x, y), _source_ids[index], Vector2i.ZERO)
+	var cell := Vector2i(x, y)
+	# Deterministic per-cell variant: stable across the 3D renderer's per-frame
+	# rebuilds, and varies the seed so different runs lay out variety differently.
+	_cell_variant[cell] = abs(hash(Vector3i(x, y, world_seed))) % VARIANTS
+	set_cell(cell, _source_ids[index], Vector2i.ZERO)
+
+
+## Art variant (0..VARIANTS-1) for a solid cell; 0 for unknown/empty cells.
+func cell_variant(cell: Vector2i) -> int:
+	return _cell_variant.get(cell, 0)
 
 
 # --- Digging API ---
@@ -687,7 +718,7 @@ func _collapse_after_warning(start: Vector2i) -> void:
 	var collapsed := 0
 	var c := start
 	while collapsed < MAX_COLLAPSE and c.y > SURFACE_Y and is_solid(c):
-		var tex: Texture2D = load(get_block_def(c)["tex"])
+		var tex: Texture2D = load(variant_tex_path(block_index(c), cell_variant(c)))
 		erase_cell(c)
 		content_version += 1
 		_block_hp.erase(c)

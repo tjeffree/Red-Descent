@@ -59,7 +59,20 @@ DERIVED — Martian terrain block tiles
            composites the CC0 Kenney cyan gem (tile 67, Pixel Platformer) onto
            the Mars host rock for high-contrast vein readability.
   License: CC0 1.0 (original generated art; gem overlay is a CC0 derivative)
-  Used   : the Dirt/Rock/Basalt/Permafrost/Ore terrain types (Crust + Mantle)
+  Used   : superseded by the sliced block-tile set below (kept for reference;
+           mars_dirt.png remains the surface ground-plane fallback)
+
+DERIVED — Block tiles (7 types x 9 variants)
+  Files  : assets/generated/tiles/<type>_<0..8>.png  for type in
+           dirt, rock, basalt, permafrost, ore, bulkhead, vault
+           (build script: _tools/slice_tiles.py)
+  Source : sliced from the author-supplied sheet assets/many tiles.png — a
+           9x7 grid of framed blocks, one type per row, 9 variants each. The
+           slicer crops each tile to its solid square, inpaints the rounded
+           black corners from neighbouring colour, and downscales to 32x32.
+  License: Project author's own asset (all rights reserved to the author).
+  Used   : all terrain block types, with per-cell variant variety on the 3D
+           dig cubes (Dirt/Rock/Basalt/Permafrost/Ore + Ruins Bulkhead/Vault)
 
 DERIVED — Surface ship (4 repair stages)
   Files  : assets/generated/wreckage-0.png .. wreckage-3.png

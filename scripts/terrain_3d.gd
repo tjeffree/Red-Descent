@@ -39,11 +39,6 @@ const DEBRIS_SIZE := 15.0    # cube edge for a chunk (matches the 2D sprite's ~1
 
 const SURFACE_SIZE := Vector2(16000.0, 13000.0)   # the horizon ground plane (px), w x depth
 
-# The escape capsule (lifeboat) at the bottom of the Ruins shaft — the endgame dock.
-const CAPSULE_MODEL := "res://assets/capsule.glb"
-const CAPSULE_WIDTH := 90.0     # on-screen width in world px
-const CAPSULE_EMBED := 4.0      # px sunk into the bedrock floor so it reads as landed
-
 var terrain: TileMapLayer
 var player: Node2D
 var _cam2d: Camera2D
@@ -52,10 +47,9 @@ var _debris: Node2D          # the 2D Main/Debris container (authoritative physi
 var _sv: SubViewport
 var _cam: Camera3D
 var _lamp: OmniLight3D
-var _mmi: Array[MultiMeshInstance3D] = []   # one per block type
+var _mmi: Array[MultiMeshInstance3D] = []   # one per (block type, art variant): idx*VARIANTS + v
 var _debris_pool: Array[MeshInstance3D] = []  # reused cubes mirroring 2D debris
 var _tile: float = 18.0
-var _capsule: Node3D          # the escape capsule at the shaft bottom
 
 # Rebuild-skip cache: the cube transforms are world-space, so as long as the same
 # cell window is visible and the terrain hasn't changed, last frame's instances
@@ -110,19 +104,6 @@ func _build_surface() -> void:
 		-surface_top - 1.0,            # 1px under the rock tops (no z-fight)
 		-SURFACE_SIZE.y * 0.5)         # near edge at z=0 (the digger): only recedes away
 	_sv.add_child(mi)
-
-
-## Drop the escape capsule at the very bottom of the shaft (the endgame dock at
-## capsule_position), resting on the bedrock floor over the shaft column.
-func place_capsule() -> void:
-	if _capsule != null:
-		_capsule.queue_free()
-		_capsule = null
-	var dock: Vector2 = terrain.capsule_position()
-	# capsule_position is the centre of the last open cell; its floor is half a tile
-	# below, so seat the capsule base there (sunk CAPSULE_EMBED so it reads as landed).
-	var floor_y: float = dock.y + _tile * 0.5 + CAPSULE_EMBED
-	_capsule = _place_model(CAPSULE_MODEL, CAPSULE_WIDTH, dock.x, floor_y)
 
 
 ## Instance a .glb into the 3D world (so the shared camera + lights touch it),
@@ -224,15 +205,17 @@ func _build() -> void:
 	_cam.far = 12000.0   # far enough that the surface ground plane reaches the horizon
 	_sv.add_child(_cam)
 
-	# One textured cube MultiMesh per block type.
+	# One textured cube MultiMesh per (block type, art variant). Cells are bucketed
+	# onto these by their per-cell variant so the dig face shows tile variety.
 	for i in terrain.BLOCKS.size():
-		var mmi := MultiMeshInstance3D.new()
-		var mm := MultiMesh.new()
-		mm.transform_format = MultiMesh.TRANSFORM_3D
-		mm.mesh = _make_cube(terrain.BLOCKS[i])
-		mmi.multimesh = mm
-		_sv.add_child(mmi)
-		_mmi.append(mmi)
+		for v in terrain.VARIANTS:
+			var mmi := MultiMeshInstance3D.new()
+			var mm := MultiMesh.new()
+			mm.transform_format = MultiMesh.TRANSFORM_3D
+			mm.mesh = _make_cube(terrain.variant_tex_path(i, v), terrain.BLOCKS[i])
+			mmi.multimesh = mm
+			_sv.add_child(mmi)
+			_mmi.append(mmi)
 
 	# A pool of cube instances that mirror the 2D cave-in debris each frame. Each
 	# carries its own material so it can wear the falling chunk's tile texture.
@@ -252,9 +235,9 @@ func _build() -> void:
 
 ## A textured box for one block type — the tile art on the faces, nearest-filtered
 ## to stay crisp/pixelated, tinted by the block's modulate (Ruins metal).
-func _make_cube(def: Dictionary) -> Mesh:
+func _make_cube(tex_path: String, def: Dictionary) -> Mesh:
 	var mat := StandardMaterial3D.new()
-	mat.albedo_texture = load(def["tex"])
+	mat.albedo_texture = load(tex_path)
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
 	mat.albedo_color = def.get("modulate", Color.WHITE)
 	mat.roughness = 1.0
@@ -383,10 +366,13 @@ func _rebuild_instances(center: Vector2) -> void:
 		for cx in range(c0.x, c1.x + 1):
 			var cell := Vector2i(cx, cy)
 			var idx: int = terrain.block_index(cell)
-			if idx < 0 or idx >= buckets.size():
+			if idx < 0:
+				continue
+			var b: int = idx * terrain.VARIANTS + terrain.cell_variant(cell)
+			if b >= buckets.size():
 				continue
 			var ctr: Vector2 = terrain.map_to_local(cell)
-			buckets[idx].append(Transform3D(Basis(), _to3d(ctr, z)))
+			buckets[b].append(Transform3D(Basis(), _to3d(ctr, z)))
 
 	for i in _mmi.size():
 		var xforms: Array = buckets[i]

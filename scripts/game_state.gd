@@ -246,6 +246,33 @@ func record_run(reason: String, ore: int, depth: float, banked: bool) -> void:
 	save_game()
 
 
+# --- Reset (New Game) ---
+
+## True if there is any meta-progression worth keeping. Drives whether the menu
+## offers CONTINUE and whether NEW GAME needs an "are you sure?" confirmation.
+## Audio/display settings are preferences, not progress, so they don't count.
+func has_progress() -> bool:
+	return best_depth > 0.0 or alloy > 0 or not levels.is_empty() \
+		or repaired_count() > 0 or escaped \
+		or not seen_transmissions.is_empty() or not collected_logs.is_empty()
+
+
+## Wipe all run/meta-progression back to a fresh slate, then persist. Preserves
+## the player's settings (volumes, damage_numbers, fullscreen) since those are
+## preferences rather than game progress. Re-saving keeps the file consistent.
+func reset_game() -> void:
+	alloy = 0
+	best_depth = 0.0
+	last_run = {}
+	levels = {}
+	ship_repaired = {}
+	selected_start_m = 0.0
+	seen_transmissions = {}
+	collected_logs = {}
+	escaped = false
+	save_game()
+
+
 # --- Persistence ---
 
 func save_game() -> void:

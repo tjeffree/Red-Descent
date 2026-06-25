@@ -6,6 +6,8 @@ extends RigidBody2D
 ## drill a chunk apart (so it isn't left waiting for blockers to vanish), and it
 ## also despawns on its own after a short lifetime so debris never piles up.
 
+const CHUNK_PX: float = 15.0        ## on-screen chunk size, independent of tile texture res
+
 @export var damage: float = 12.0
 @export var lifetime: float = 2.5
 @export var drill_hp: float = 0.5   ## seconds of drilling (at drill_power 1.0) to break
@@ -29,6 +31,10 @@ func _ready() -> void:
 	global_position = _spawn_pos
 	linear_velocity = _spawn_vel
 	$Sprite2D.texture = _tex
+	# Scale the chosen tile down to the canonical chunk size, whatever its source
+	# resolution (tiles are 32px; the chunk should read at CHUNK_PX, like the 3D cube).
+	if _tex != null and _tex.get_width() > 0:
+		$Sprite2D.scale = Vector2.ONE * (CHUNK_PX / float(_tex.get_width()))
 	_life = lifetime
 	_hp = drill_hp
 	body_entered.connect(_on_body_entered)

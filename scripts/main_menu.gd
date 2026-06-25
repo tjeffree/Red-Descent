@@ -5,6 +5,10 @@ extends Node2D
 ## behind the title and a simple vertical selector.
 ##   [Up/Down] select    [E]/[Enter]/[Space] confirm
 ##
+## CONTINUE resumes the saved meta-progression; NEW GAME wipes it (after an
+## "are you sure?" confirmation, since it is irreversible) and starts fresh.
+## CONTINUE is dimmed when there is no progress to resume.
+##
 ## SETTINGS opens an in-place panel: an audio mixer (Master/Music/SFX/UI) plus
 ## VISUALS toggles (damage numbers, fullscreen), adjusted with Left/Right and
 ## persisted through GameState. Fullscreen also has global F11 / Alt+Enter
@@ -16,11 +20,13 @@ const HUB_SCENE := "res://scenes/hub.tscn"
 ## Loops after the first restart this far in, skipping the intro lead-in.
 const LOOP_START := 2.0
 const BUSES := ["Master", "Music", "SFX", "UI"]
+## New-game confirmation choices; index 0 (KEEP) is the safe default.
+const CONFIRM_OPTS := ["KEEP MY PROGRESS", "ERASE AND START OVER"]
 
 var _font: FontFile
 var _video: VideoStreamPlayer
 var _selected: int = 0
-var _options := ["START DESCENT", "SETTINGS", "QUIT"]
+var _options := ["CONTINUE", "NEW GAME", "SETTINGS", "QUIT"]
 var _rows: Array[Label] = []
 
 var _menu_box: VBoxContainer
@@ -31,6 +37,11 @@ var _full_row: Label                # "FULLSCREEN  ON/OFF" toggle
 var _in_settings: bool = false
 # 0..BUSES.size()-1 = audio bus; BUSES.size() = damage toggle; +1 = fullscreen.
 var _settings_idx: int = 0
+
+var _confirm_box: VBoxContainer     # NEW GAME "are you sure?" overlay
+var _confirm_rows: Array[Label] = []
+var _in_confirm: bool = false
+var _confirm_idx: int = 0
 
 
 func _ready() -> void:
@@ -89,6 +100,9 @@ func _ready() -> void:
 	layer.add_child(nav)
 
 	_build_settings(layer)
+	_build_confirm(layer)
+	# Land on CONTINUE when there's a save to resume, otherwise on NEW GAME.
+	_selected = 0 if GameState.has_progress() else 1
 	_refresh()
 
 	Audio.stop_all_sfx()   # clean slate (e.g. returning from the endgame)
@@ -122,6 +136,37 @@ func _build_settings(layer: CanvasLayer) -> void:
 	_settings_box.add_child(_label("[Up/Down] select   [Left/Right] adjust   [Back/Esc] done", 16, Color(0.8, 0.72, 0.66), HORIZONTAL_ALIGNMENT_CENTER))
 
 
+## The NEW GAME confirmation overlay, hidden until ERASE is chosen. Defaults the
+## selector to KEEP so a stray confirm can't wipe a save.
+func _build_confirm(layer: CanvasLayer) -> void:
+	_confirm_box = VBoxContainer.new()
+	_confirm_box.alignment = BoxContainer.ALIGNMENT_CENTER
+	_confirm_box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_confirm_box.add_theme_constant_override("separation", 14)
+	_confirm_box.visible = false
+	layer.add_child(_confirm_box)
+
+	_confirm_box.add_child(_label("NEW GAME", 64, Color(0.85, 0.18, 0.14), HORIZONTAL_ALIGNMENT_CENTER))
+	_confirm_box.add_child(_spacer(18))
+	_confirm_box.add_child(_label("This erases your Alloy, upgrades, depth and ship", 22, Color(0.9, 0.85, 0.8), HORIZONTAL_ALIGNMENT_CENTER))
+	_confirm_box.add_child(_label("progress. This cannot be undone.", 22, Color(0.9, 0.85, 0.8), HORIZONTAL_ALIGNMENT_CENTER))
+	_confirm_box.add_child(_spacer(34))
+	for opt in CONFIRM_OPTS:
+		var r := _label(opt, 32, Color(0.95, 0.95, 0.95), HORIZONTAL_ALIGNMENT_CENTER)
+		_confirm_rows.append(r)
+		_confirm_box.add_child(r)
+	_confirm_box.add_child(_spacer(34))
+	_confirm_box.add_child(_label("[Up/Down] select   [E]/[Enter] confirm   [Back/Esc] cancel", 16, Color(0.8, 0.72, 0.66), HORIZONTAL_ALIGNMENT_CENTER))
+
+
+func _refresh_confirm() -> void:
+	for i in range(CONFIRM_OPTS.size()):
+		var prefix := "> " if i == _confirm_idx else "   "
+		_confirm_rows[i].text = "%s%s" % [prefix, CONFIRM_OPTS[i]]
+		_confirm_rows[i].add_theme_color_override("font_color",
+			Color(1.0, 0.85, 0.3) if i == _confirm_idx else Color(0.95, 0.95, 0.95))
+
+
 func _on_video_finished() -> void:
 	# Restart and skip past the intro lead-in so loops feel continuous.
 	_video.play()
@@ -129,10 +174,13 @@ func _on_video_finished() -> void:
 
 
 func _refresh() -> void:
+	var can_continue := GameState.has_progress()
 	for i in range(_options.size()):
 		var prefix := "> " if i == _selected else "   "
 		_rows[i].text = "%s%s" % [prefix, _options[i]]
 		var col := Color(0.95, 0.95, 0.95)
+		if i == 0 and not can_continue:
+			col = Color(0.5, 0.5, 0.5)   # nothing saved to continue
 		if i == _selected:
 			col = Color(1.0, 0.85, 0.3)
 		_rows[i].add_theme_color_override("font_color", col)
@@ -180,13 +228,44 @@ func _spacer(h: int) -> Control:
 
 func _confirm() -> void:
 	match _selected:
-		0:
+		0:   # CONTINUE — inert when there's nothing saved (the row is dimmed).
+			if not GameState.has_progress():
+				return
 			Audio.ui("confirm")
 			get_tree().change_scene_to_file(HUB_SCENE)
-		1:
-			_open_settings()
+		1:   # NEW GAME — confirm before wiping real progress; otherwise go straight in.
+			if GameState.has_progress():
+				_open_confirm()
+			else:
+				_start_new_game()
 		2:
+			_open_settings()
+		3:
 			get_tree().quit()
+
+
+## Wipe meta-progression and drop into the hub with a fresh slate.
+func _start_new_game() -> void:
+	GameState.reset_game()
+	Audio.ui("confirm")
+	get_tree().change_scene_to_file(HUB_SCENE)
+
+
+func _open_confirm() -> void:
+	_in_confirm = true
+	_confirm_idx = 0
+	_menu_box.visible = false
+	_confirm_box.visible = true
+	_refresh_confirm()
+	Audio.ui("open")
+
+
+func _close_confirm() -> void:
+	_in_confirm = false
+	_confirm_box.visible = false
+	_menu_box.visible = true
+	_refresh()
+	Audio.ui("close")
 
 
 func _open_settings() -> void:
@@ -209,6 +288,9 @@ func _close_settings() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if _in_settings:
 		_settings_input(event)
+		return
+	if _in_confirm:
+		_confirm_input(event)
 		return
 
 	var n := _options.size()
@@ -241,6 +323,26 @@ func _settings_input(event: InputEvent) -> void:
 		_adjust(0.1)
 	elif event.is_action_pressed("ui_left"):
 		_adjust(-0.1)
+
+
+func _confirm_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel"):
+		_close_confirm()
+		return
+	var n := CONFIRM_OPTS.size()
+	if event.is_action_pressed("ui_down"):
+		_confirm_idx = (_confirm_idx + 1) % n
+		_refresh_confirm()
+		Audio.ui("focus")
+	elif event.is_action_pressed("ui_up"):
+		_confirm_idx = (_confirm_idx - 1 + n) % n
+		_refresh_confirm()
+		Audio.ui("focus")
+	elif event.is_action_pressed("interact") or event.is_action_pressed("jump"):
+		if _confirm_idx == 1:
+			_start_new_game()
+		else:
+			_close_confirm()
 
 
 ## Nudge the selected setting. For an audio bus, change the volume; for the damage
