@@ -79,6 +79,14 @@ sacrifice of the upgraded rig.
   slows effective drill power.
 - **HUD** (`hud.gd`): biome readout + hazard warnings; radiation **scrambles the
   telemetry** (gauge %/depth/biome readouts garble while true bar values persist).
+- **Hazard tint overlay** (`hazard_tint.gd`, new): a 2D overlay (sibling under Main, on
+  the 3D layer but below the rig — same slot as `dig_cracks`) washes a translucent,
+  gently pulsing, colour-coded tint over the hazard air-pockets so a damaging zone reads
+  at a glance instead of only via the HUD line. Lava = orange, gas = green, radiation =
+  violet; cells overscan 1px to merge into one glow. Fed by `world.hazard_cells_in_rect()`
+  (bounded to the visible window, cheap per frame). **Gated on the Seismic Scanner**
+  (any tier ≥ 1, via the rig's `hazard_vision` flag) — unscanned dives leave the deep
+  hazards unmarked, so revealing them is an upgrade payoff.
 - **Dive** (`main.gd`): start-at-depth from the chosen checkpoint (recall still rises to
   the true surface); biome-transition banners ("ENTERING THE MANTLE …") seed the §7 narration.
 - **Surface ship** (`main.gd` → `_place_wreckage`/`_wreckage_stage`): the mother ship rests on

@@ -40,6 +40,7 @@ const CAPSULE_WIDTH := 120.0
 @onready var player: CharacterBody2D = $Player
 @onready var terrain: TileMapLayer = $Terrain
 @onready var terrain_3d: Node = $Terrain3D
+@onready var hazard_tint: Node2D = $HazardTint
 @onready var debris: Node2D = $Debris
 @onready var damage_numbers: Node2D = $DamageNumbers
 @onready var dig_cracks: Node2D = $DigCracks
@@ -67,6 +68,7 @@ func _ready() -> void:
 	terrain.cavein.connect(_on_cavein)
 	damage_numbers.connect_terrain(terrain)
 	dig_cracks.setup(terrain)
+	hazard_tint.setup(terrain, player)
 
 	# Recall always rises to the TRUE surface, regardless of where we launched.
 	_surface_y = terrain.get_start_position().y

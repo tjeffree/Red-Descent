@@ -790,6 +790,25 @@ func hazard_at(global_pos: Vector2) -> String:
 	return _hazard_cells.get(cell, "")
 
 
+## Hazard air-pockets overlapping a world-space rect, for the danger-zone tint
+## overlay. Returns [{ pos: Vector2 (cell centre, local=world), kind: String }].
+## Iterates only the (bounded) visible cell window, so it's cheap each frame even
+## when the Mantle holds thousands of tagged cells overall.
+func hazard_cells_in_rect(top_left: Vector2, bottom_right: Vector2) -> Array:
+	var out: Array = []
+	if _hazard_cells.is_empty():
+		return out
+	var c0: Vector2i = local_to_map(to_local(top_left))
+	var c1: Vector2i = local_to_map(to_local(bottom_right))
+	for cy in range(c0.y, c1.y + 1):
+		for cx in range(c0.x, c1.x + 1):
+			var cell := Vector2i(cx, cy)
+			var kind: String = _hazard_cells.get(cell, "")
+			if kind != "":
+				out.append({ "pos": map_to_local(cell), "kind": kind })
+	return out
+
+
 ## Deepest reachable depth in metres (bottom of the diggable terrain, i.e. just
 ## above the indestructible bedrock floor).
 func max_depth_meters() -> float:

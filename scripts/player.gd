@@ -89,6 +89,9 @@ var dig_reach: int = 0   # extra tiles beyond the first, along the dig direction
 var ore_pings: int = 1
 var powerup_pings: int = 0
 var poi_pings: int = 0
+# Hazard-zone vision: the scanner (any tier) reveals the danger-zone tint overlay
+# (lava/gas/radiation washes); without it the deep hazards are unmarked.
+var hazard_vision: bool = false
 
 # Per-auger-level (side, reach). Index 0 = no upgrade (L0); L1 keeps the
 # original 3-wide shaft (side=1, reach=0). Growth alternates wider/deeper.
@@ -161,6 +164,7 @@ func _apply_upgrades() -> void:
 	ore_pings = 2 if sc >= 1 else 1
 	powerup_pings = clampi(sc - 1, 0, 2)   # tier 2 -> 1, tier 3+ -> 2
 	poi_pings = 1 if sc >= 4 else 0
+	hazard_vision = sc >= 1                 # the scanner lights the hazard-zone tint
 
 
 func _physics_process(delta: float) -> void:
