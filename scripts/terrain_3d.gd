@@ -79,6 +79,18 @@ const MTN_NEAR_H := 400.0       # world height of a near butte
 const MTN_NEAR_DX := 720.0      # buttes sit this far either side of the shaft centre
 const MTN_NEAR_LIFT := 0.0
 
+# Surface haze: a dusty band of air hugging the horizon. An unshaded, vertically
+# faded billboard planted on the surface line, standing IN FRONT of the mountains
+# (so it veils their feet) but BEHIND the dig cubes (z<0), which occlude it below
+# their tops — so it only ever shows in the strip of air just above the surface.
+# Densest at the surface line, fading to clear higher up; this masks the seam where
+# the parallax layers meet the dig line. Re-seated each frame like the mountains.
+const HAZE_Z := -300.0          # between the near buttes (-600) and the dig cubes (0)
+const HAZE_H := 320.0           # world height of the band (rises from the surface line)
+const HAZE_W := 7000.0          # spans well past the screen at this depth
+const HAZE_TINT := Color(0.86, 0.66, 0.60)  # dusty salmon, sampled near the horizon
+const HAZE_MAX_ALPHA := 0.9     # opacity at the surface line, fading to 0 at the top
+
 var terrain: TileMapLayer
 var player: Node2D
 var _cam2d: Camera2D
@@ -91,6 +103,7 @@ var _mmi: Array[MultiMeshInstance3D] = []   # one per (block type, art variant):
 var _buckets: Array = []   # reused per rebuild: one Array[Vector3] of cube centres per _mmi
 var _debris_pool: Array[MeshInstance3D] = []  # reused cubes mirroring 2D debris
 var _mtns: Array = []   # backdrop billboards: each {mi, half_h, z_abs, lift}, re-seated each frame
+var _haze: MeshInstance3D   # surface haze band; its x tracks the camera so it always fills the view
 var _last_seat_eye: float = INF   # camera eye-y / distance at the last mountain re-seat
 var _last_seat_dist: float = 0.0
 var _tile: float = 18.0
@@ -119,6 +132,7 @@ func setup(t: TileMapLayer, p: Node2D, debris_container: Node2D) -> void:
 	terrain.self_modulate = Color(1, 1, 1, 0)
 	_build_sky()
 	_build_mountains()
+	_build_haze()
 
 
 ## Build a textured vertical backdrop plane (FACE_Z, double-sided, mipmapped) sized
@@ -195,6 +209,37 @@ func _build_mountains() -> void:
 	_add_mountain(MTN_NEAR_TEX, MTN_NEAR_H, cx - MTN_NEAR_DX, MTN_NEAR_Z, MTN_NEAR_LIFT, true)
 	_add_mountain(MTN_NEAR_TEX, MTN_NEAR_H, cx + MTN_NEAR_DX, MTN_NEAR_Z, MTN_NEAR_LIFT, false)
 	# Initial seat happens on the first _process (the camera isn't positioned yet here).
+
+
+## Surface haze band: a wide, vertically-faded billboard standing in front of the
+## mountains so it veils their feet and the seam where the backdrop meets the dig
+## line. Foot planted on the surface line (registered in _mtns with lift 0, so the
+## dense base sits exactly on the horizon and the band rises into the sky); the dig
+## cubes occlude everything below the line, so only the above-line strip shows.
+func _build_haze() -> void:
+	if _sv == null or terrain == null:
+		return
+	var cx: float = terrain.get_start_position().x
+	_haze = _add_backdrop(_make_haze_texture(), Vector2(HAZE_W, HAZE_H), Vector3(cx, 0.0, HAZE_Z))
+	var mat := (_haze.mesh as PlaneMesh).material as StandardMaterial3D
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED   # daylit haze, not cave-lit
+	# Seat like a mountain: foot on the surface line, band rising upward (half_h up).
+	# (x is re-locked to the camera each frame in _process so the band never runs out.)
+	_mtns.append({"mi": _haze, "half_h": HAZE_H * 0.5, "z_abs": absf(HAZE_Z), "lift": 0.0})
+
+
+## A 1×N vertical alpha ramp for the haze band: opaque HAZE_TINT at the bottom (the
+## surface line) easing to fully clear at the top. PlaneMesh UVs run v=0 at the top,
+## so row 0 is the clear edge and the last row is the dense base.
+func _make_haze_texture() -> ImageTexture:
+	var h := 128
+	var img := Image.create(1, h, false, Image.FORMAT_RGBA8)
+	for y in h:
+		var t: float = float(y) / float(h - 1)   # 0 top (clear) -> 1 bottom (dense)
+		var a: float = pow(t, 1.6) * HAZE_MAX_ALPHA
+		img.set_pixel(0, y, Color(HAZE_TINT.r, HAZE_TINT.g, HAZE_TINT.b, a))
+	return ImageTexture.create_from_image(img)
 
 
 ## One mountain billboard: a vertical alpha plane scaled to `height` (px) at its
@@ -449,6 +494,8 @@ func _process(_delta: float) -> void:
 	_rebuild_instances(center)
 	_update_debris()
 	_seat_mountains(dist)   # keep the backdrop planted on the surface line as the camera moves
+	if _haze != null:
+		_haze.position.x = center.x   # uniform atmosphere: follow the camera so it always fills the view
 
 
 ## Mirror each live 2D debris chunk onto a pooled 3D cube (2D physics stays

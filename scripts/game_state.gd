@@ -30,6 +30,10 @@ const SHIP_PARTS: Array = [
 
 # Telemetry beacon: dives can start at a previously-reached 250 m milestone.
 const CHECKPOINT_STEP := 250.0
+# Deepest launch milestone offered. The Ruins begin at 1000 m and the escape
+# capsule sits ~50 m above the world floor (~1300 m), so a 1250 m launch drops
+# the rig straight onto the capsule — no dive at all. Cap at the Ruins entrance.
+const MAX_LAUNCH_DEPTH := 1000.0
 
 var alloy: int = 0
 var best_depth: float = 0.0
@@ -195,10 +199,12 @@ func ship_complete() -> bool:
 # --- Telemetry beacon (launch-depth checkpoints) ---
 
 ## Reachable launch depths: always 0.0 (Surface), plus each CHECKPOINT_STEP
-## milestone up to floor(best_depth/STEP)*STEP. Ascending, no duplicates.
+## milestone up to floor(best_depth/STEP)*STEP, capped at MAX_LAUNCH_DEPTH so the
+## deepest beacon never lands the rig on the escape capsule. Ascending, no dupes.
 func available_checkpoints() -> Array:
 	var out: Array = [0.0]
-	var count := int(floor(best_depth / CHECKPOINT_STEP))
+	var reach: float = minf(best_depth, MAX_LAUNCH_DEPTH)
+	var count := int(floor(reach / CHECKPOINT_STEP))
 	for i in range(1, count + 1):
 		out.append(float(i) * CHECKPOINT_STEP)
 	return out

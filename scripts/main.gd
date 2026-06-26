@@ -82,11 +82,27 @@ func _ready() -> void:
 	player.current_depth = terrain.depth_meters(player.global_position)
 	_current_biome = terrain.biome_at_depth(player.current_depth)
 
+	_set_camera_bounds()                        # stop scrolling at the play-area walls (no overscroll into the void)
+
 	terrain_3d.setup(terrain, player, debris)   # 3D cube render; also hides the flat tiles
 	_place_capsule()                            # escape capsule at the shaft bottom (endgame dock)
 	_place_wreckage()                           # surface ship as a flat 2D sprite over the 3D world
 
 	Audio.music("dive")
+
+
+## Clamp the rig camera's horizontal scroll to the world's pixel bounds, so the view
+## stops at the indestructible boundary walls (columns 0 and W-1) instead of panning
+## past them into the open void/sky beyond the play area. Left/right only — vertical
+## stays free so the surface sky and the full descent remain visible. get_screen_center_position()
+## honours these limits, so the 3D backdrop (cubes, mountains, haze) stops in lockstep.
+func _set_camera_bounds() -> void:
+	var cam: Camera2D = player.get_node("Camera2D")
+	var half: float = terrain.TILE_SIZE * 0.5
+	var left: float = terrain.to_global(terrain.map_to_local(Vector2i(0, 0))).x - half
+	var right: float = terrain.to_global(terrain.map_to_local(Vector2i(terrain.W - 1, 0))).x + half
+	cam.limit_left = int(left)
+	cam.limit_right = int(right)
 
 
 ## Seat the escape capsule on the floor of the chamber at the very bottom of the
