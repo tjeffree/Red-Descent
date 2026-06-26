@@ -63,6 +63,7 @@ sacrifice of the upgraded rig.
 | 9 | **Climax & Endgame** — dock the capsule, transfer power (drains meta-upgrades), lockdown collapse, launch to Earth, ending card | **Done & verified** (see below; all scenes load clean in 4.5.1) |
 | Audio | **Sound & music pass** — bus mixer, `Audio` autoload, gameplay SFX, menu/UI SFX, music + ambience, volume settings | **Done & verified** (see below; menu/hub/dive/endgame run clean in 4.5.1) |
 | Powerups | **Short-term powerups** — buried salvage caches granting single-dive boons (instant on pickup, stackable, some timed); `Powerups` autoload + rig/HUD/terrain wiring | **Done & verified** (see below; dive runs clean in 4.5.1, effects self-tested) |
+| 2.5D blocks | **3D terrain render** — dive rock drawn as real 3D cubes in a SubViewport behind the 2D world; gameplay stays 100% 2D (`terrain_3d.gd` mirrors the live tilemap) | **Done & verified** (see below; dive runs clean in 4.5.1, screenshot-verified) |
 
 ### Phase 6 — implemented (The Mantle)
 
@@ -78,6 +79,14 @@ sacrifice of the upgraded rig.
   slows effective drill power.
 - **HUD** (`hud.gd`): biome readout + hazard warnings; radiation **scrambles the
   telemetry** (gauge %/depth/biome readouts garble while true bar values persist).
+- **Hazard tint overlay** (`hazard_tint.gd`, new): a 2D overlay (sibling under Main, on
+  the 3D layer but below the rig — same slot as `dig_cracks`) washes a translucent,
+  gently pulsing, colour-coded tint over the hazard air-pockets so a damaging zone reads
+  at a glance instead of only via the HUD line. Lava = orange, gas = green, radiation =
+  violet; cells overscan 1px to merge into one glow. Fed by `world.hazard_cells_in_rect()`
+  (bounded to the visible window, cheap per frame). **Gated on the Seismic Scanner**
+  (any tier ≥ 1, via the rig's `hazard_vision` flag) — unscanned dives leave the deep
+  hazards unmarked, so revealing them is an upgrade payoff.
 - **Dive** (`main.gd`): start-at-depth from the chosen checkpoint (recall still rises to
   the true surface); biome-transition banners ("ENTERING THE MANTLE …") seed the §7 narration.
 - **Surface ship** (`main.gd` → `_place_wreckage`/`_wreckage_stage`): the mother ship rests on
@@ -141,6 +150,16 @@ All in `world.gd` (plus one Ruins lore beat). The world now extends past the Man
 - **Docking** (`main.gd` + `hud.gd`): within `DOCK_RANGE` of the capsule the HUD shows a dock
   prompt (top-priority status, via `hud.set_dock_prompt`) instead of the recall prompt; `interact`
   there changes to `scenes/endgame.tscn`.
+- **Endgame gating** (`main.gd` `_reject_dock`, `lore.gd`, `hub.gd` — see
+  `docs/Red_Descent_Endgame_Gating_Changes.md`): docking is gated on `GameState.ship_complete()`.
+  The capsule is inert until the surface wreckage is fully restored — narratively the rig can't
+  carry a charge that big until the salvaged systems harden it. With the wreckage **incomplete**,
+  reaching the terminal does **not** start the endgame: `_reject_dock()` banks the run
+  (`record_run(..., banked = true)`, so the dive still pays out), shows a banner naming the wreckage
+  and the parts remaining, and auto-ascends via the recall path — it never sets `escaped`. With the
+  wreckage **complete**, docking behaves exactly as before. Feedback: a Ruins-entry transmission
+  (`t_capsule_dead`, gated by the new `ship_incomplete` trigger flag in `Lore.fires`) and hub
+  signposting ("CAPSULE POWER  N/4 systems" + a restore-to-escape teaser).
 - **The Sacrifice** (`game_state.gd`): `sacrifice_rig()` permanently clears every rig upgrade
   (`levels = {}`) and sets a persisted `escaped` flag — the cost of powering the capsule.
 - **Cinematic** (`scripts/endgame.gd` + `scenes/endgame.tscn`): a five-beat scripted sequence —
@@ -214,3 +233,49 @@ and are deliberately **rare** (3-6 seeded per dive).
 - **Wiring** (`main.gd`): `_process_powerups()` each diving frame — collect,
   `player.apply_powerup`, popup + `Audio.sfx("powerup")`; also flashes the Last
   Gasp save via `player.consume_last_gasp()`.
+
+### 2.5D blocks — implemented (3D terrain render)
+
+Branch `feature/depth-25d`. The dive's rock is drawn as **real 3D cube geometry**
+in a `SubViewport` composited behind the 2D world; gameplay stays 100% 2D and
+authoritative. See `docs/Red_Descent_2.5D_Blocks_Handoff.md` for the full design
+rationale and the alignment math.
+
+- **Renderer** (`terrain_3d.gd`, node `Main/Terrain3D`): a backmost `CanvasLayer`
+  (-10) → `SubViewportContainer` → `SubViewport` (own world, perspective
+  `Camera3D` slaved to the smoothed 2D camera at matching magnification, so the
+  z=0 plane lines up 1:1 with the 2D world). One textured-cube `MultiMeshInstance3D`
+  per block type, re-derived each frame from the live tilemap so digs/cave-ins
+  reflect automatically. The flat `TileMapLayer` tiles are hidden via
+  `terrain.self_modulate.a = 0` — **not** `visible = false` — so the tilemap's
+  *child* overlays (the buried-cache glint markers added by `_spawn_powerup_marker`)
+  still render on top of the 3D rock; `self_modulate` affects only the node's own
+  drawing (the tiles), `modulate`/`visible` would hide the children too. Collision
+  and the dig API are unaffected.
+  - **Cube mesh** (`_uv_cube`/`_face`): a hand-built cube, **not** Godot's `BoxMesh`.
+    `BoxMesh` slices one texture across all faces (a cube-net unwrap), which buries a
+    centred tile detail — e.g. the Ore diamond — in a corner. `_uv_cube` gives every
+    face the full 0..1 UV (front = +Z, upright/un-mirrored). Don't swap it back to
+    `BoxMesh`. Faces are **clockwise-wound** (Godot's front-facing winding) so the
+    OUTWARD side renders and the interiors cull — flip it and you see *into* hollow
+    boxes instead of solid block fronts.
+- **Dig cracks** (`dig_cracks.gd`): reparented out from under the hidden Terrain to
+  a sibling under `Main` (drawn on top of the 3D layer, below the rig). Now wired a
+  terrain reference via `setup(terrain)` from `main.gd` instead of `get_parent()`.
+- **Cave-in debris** (`terrain_3d.gd::_update_debris`): a pool of cube
+  `MeshInstance3D`s mirrors each live `Main/Debris` child's position/z-rotation and
+  tile texture every frame, so chunks read as 3D rock (2D physics stays authoritative).
+- **Lighting**: a top-down directional "sun" + a **camera-side front fill** +
+  warm ambient + a rig **headlamp** `OmniLight3D`. The fill is essential: the camera
+  always looks down +Z at the block *fronts*, which the top-down sun barely lights —
+  without it, fronts go black wherever the headlamp doesn't reach. Energies are
+  ordered sun > fill > ambient so tops still read brightest (tops > fronts > recessed
+  sides) for a 3D, moody-but-readable shaft.
+- **Performance**: `_rebuild_instances` skips on frames where neither the visible
+  cell window nor `world.gd::content_version` (bumped on every dig/cave-in erase)
+  changed — the cube transforms are world-space, so a static view costs nothing.
+- **Surface**: the crashed-ship **wreckage** stays a 2D `Sprite2D` foreground object
+  resting on the 3D terrain (reads fine); the open sky above shows the dark env BG.
+  A proper scrolling sky backdrop was deferred — it would require a transparent
+  SubViewport + a separate backdrop layer and risks regressing how dug-out voids
+  render underground. Acceptable/atmospheric as-is.

@@ -63,6 +63,10 @@ const TRANSMISSIONS: Array = [
 		"The drill won't bite. Something down here was built to never be dug through. There's a door in the dark. Whatever I came for, it isn't my ship.",
 		"Bedrock that isn't bedrock. There's a door down here. My ship was never the point.",
 		"The drill just slides off it. There's a threshold in the dark, and it was made to last forever." ] },
+	{ "id": "t_capsule_dead", "trigger": { "biome": "ruins", "ship_incomplete": true }, "variants": [
+		"Even if I reach the capsule, this rig can't carry a charge that big — not until the wreckage up top is whole. Get the ship rebuilt first.",
+		"There's a lifeboat down here, I can feel it. But it's dead weight until I finish the wreckage topside — only then can the rig feed it.",
+		"Capsule's close. Won't matter. Without the wreckage restored, the rig can't deliver the power to wake it. Surface, repair, come back." ] },
 	{ "id": "t_ruins",  "trigger": { "biome": "ruins" }, "variants": [
 		"I'm inside it. Corridors. Bulkheads. Right angles that no cave ever made. This is a structure — and it's enormous.",
 		"Through the vault. The walls are steel the drill can't touch. Someone built a cathedral under the crust and then sealed it.",
@@ -205,8 +209,13 @@ func _requirement_met(req: Dictionary) -> bool:
 
 ## Does this transmission's trigger fire given the current dive context?
 ## ctx keys: depth(float), biome(String), hazard(String), event(String).
+## Optional AND-gate `ship_incomplete`: when present, the beat only fires while the
+## wreckage is NOT fully restored (used by the capsule-gating warning) — once the
+## ship is whole the warning is moot, so it suppresses.
 func fires(t: Dictionary, ctx: Dictionary) -> bool:
 	var trig: Dictionary = t.get("trigger", {})
+	if trig.get("ship_incomplete", false) and GameState.ship_complete():
+		return false
 	if trig.has("depth"):
 		return float(ctx.get("depth", 0.0)) >= float(trig["depth"])
 	if trig.has("biome"):

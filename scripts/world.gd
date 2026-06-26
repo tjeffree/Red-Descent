@@ -18,6 +18,12 @@ const H: int = 533
 const SURFACE_Y: int = 10
 const METERS_PER_TILE: float = 2.5
 
+# The surface crust directly beneath the wreckage is made indestructible Bulkhead so
+# the player can't dig out from under the ship. WRECK_ANCHOR_HALF_W spans the hull
+# footprint (±tiles from centre); the whole span is solid, so the player must travel
+# along the surface past the ship to find a spot to dig in — and the first ore.
+const WRECK_ANCHOR_HALF_W: int = 9
+
 # Rows of indestructible bedrock at the very bottom (below the Ruins).
 const BEDROCK_ROWS: int = 3
 
@@ -29,18 +35,26 @@ const MANTLE_END_M := 1000.0   # Ruins begin here (rigid, indestructible archite
 
 # Block definitions. `hardness` = HP (seconds at drill_power 1.0).
 # `heat` = heat units/sec while drilling (negative = cooling).
-# `modulate` tints the (shared) texture — used to give the Ruins a cold/metallic
-# look. `indestructible` blocks refuse the drill (the Ruins' rigid architecture).
+# `tex` is variant 0 (the canonical art, used for the invisible logic tilemap and
+# as a fallback); every block also has VARIANTS sliced tiles at
+# `res://assets/generated/tiles/<name lower>_<v>.png` — see variant_tex_path().
+# `modulate` tints the texture; `indestructible` blocks refuse the drill.
+const VARIANTS: int = 9
 const BLOCKS: Array = [
-	{ "name": "Dirt",       "tex": "res://assets/generated/mars_dirt.png",                                   "hardness": 0.45, "heat": 7.0 },
-	{ "name": "Rock",       "tex": "res://assets/generated/mars_rock.png",                                   "hardness": 1.10, "heat": 16.0 },
-	{ "name": "Basalt",     "tex": "res://assets/generated/mars_basalt.png",                                 "hardness": 2.00, "heat": 42.0 },
-	{ "name": "Permafrost", "tex": "res://assets/generated/mars_permafrost.png",                             "hardness": 0.90, "heat": -30.0 },
-	{ "name": "Ore",        "tex": "res://assets/generated/mars_ore.png",                                    "hardness": 1.30, "heat": 20.0 },
+	{ "name": "Dirt",       "tex": "res://assets/generated/tiles/dirt_0.png",       "hardness": 0.45, "heat": 7.0 },
+	{ "name": "Rock",       "tex": "res://assets/generated/tiles/rock_0.png",       "hardness": 1.10, "heat": 16.0 },
+	{ "name": "Basalt",     "tex": "res://assets/generated/tiles/basalt_0.png",     "hardness": 2.00, "heat": 42.0 },
+	{ "name": "Permafrost", "tex": "res://assets/generated/tiles/permafrost_0.png", "hardness": 0.90, "heat": -30.0 },
+	{ "name": "Ore",        "tex": "res://assets/generated/tiles/ore_0.png",        "hardness": 1.30, "heat": 20.0 },
 	# --- Ruins (Phase 8) ---
-	{ "name": "Bulkhead",   "tex": "res://assets/kenney_pixel_platformer_blocks/Tiles/Marble/tile_0000.png", "hardness": 999.0, "heat": 0.0, "indestructible": true, "modulate": Color(0.52, 0.64, 0.82) },
-	{ "name": "Vault",      "tex": "res://assets/kenney_pixel_platformer_blocks/Tiles/Stone/tile_0000.png",  "hardness": 4.0, "heat": 12.0, "modulate": Color(0.80, 0.58, 0.34) },
+	{ "name": "Bulkhead",   "tex": "res://assets/generated/tiles/bulkhead_0.png",   "hardness": 999.0, "heat": 0.0, "indestructible": true },
+	{ "name": "Vault",      "tex": "res://assets/generated/tiles/vault_0.png",      "hardness": 4.0, "heat": 12.0 },
 ]
+
+
+## Filesystem path of variant `v` (0..VARIANTS-1) of block-type `index` (into BLOCKS).
+func variant_tex_path(index: int, v: int) -> String:
+	return "res://assets/generated/tiles/%s_%d.png" % [String(BLOCKS[index]["name"]).to_lower(), v]
 
 const DIRT := 0
 const ROCK := 1
@@ -95,6 +109,7 @@ var _dmg_last_ms: Dictionary = {}   # cell -> Time.get_ticks_msec() of the last 
 var _source_ids: Array[int] = []
 var _id_to_index: Dictionary = {}
 var _block_hp: Dictionary = {}
+var _cell_variant: Dictionary = {}   # Vector2i -> int (0..VARIANTS-1), art variety
 var _ore_cells: Dictionary = {}      # Vector2i -> true, for the ore compass
 var _hazard_cells: Dictionary = {}   # Vector2i -> String ("gas"|"lava"|"radiation")
 var _bedrock_cells: Dictionary = {}  # Vector2i -> true, indestructible floor
@@ -107,6 +122,10 @@ var _cave := FastNoiseLite.new()
 var _mat := FastNoiseLite.new()
 var _ore := FastNoiseLite.new()
 var _haz := FastNoiseLite.new()      # mantle hazard placement
+
+## Bumped whenever a cell is removed (dig / cave-in). The 3D renderer watches this
+## to skip rebuilding its cube instances on frames where nothing changed.
+var content_version: int = 0
 
 
 func _ready() -> void:
@@ -124,8 +143,9 @@ func _build_tileset() -> TileSet:
 	var h: float = TILE_SIZE / 2.0
 	for i in BLOCKS.size():
 		var source := TileSetAtlasSource.new()
-		source.texture = load(BLOCKS[i]["tex"])
-		source.texture_region_size = Vector2i(TILE_SIZE, TILE_SIZE)
+		var tex: Texture2D = load(BLOCKS[i]["tex"])
+		source.texture = tex
+		source.texture_region_size = tex.get_size()   # 32px art; layer is invisible (3D cubes draw)
 		source.create_tile(Vector2i.ZERO)
 		var sid: int = ts.add_source(source)
 
@@ -181,6 +201,12 @@ func _generate() -> void:
 				continue                      # open sky
 
 			var depth_m: float = float(y - SURFACE_Y) * METERS_PER_TILE
+
+			# Surface crust under the wreckage: a solid indestructible anchor for the
+			# hull, so the player must travel along the surface to dig in.
+			if y == SURFACE_Y and absi(x - W / 2) <= WRECK_ANCHOR_HALF_W:
+				_place(x, y, BULKHEAD)
+				continue
 
 			# The Ruins (>= 1000 m): fill solid with indestructible Bulkhead; the
 			# rigid architecture (shaft/rooms/doors) is carved out afterwards.
@@ -492,7 +518,16 @@ func _tag_hazard(cell: Vector2i, depth_m: float) -> void:
 
 
 func _place(x: int, y: int, index: int) -> void:
-	set_cell(Vector2i(x, y), _source_ids[index], Vector2i.ZERO)
+	var cell := Vector2i(x, y)
+	# Deterministic per-cell variant: stable across the 3D renderer's per-frame
+	# rebuilds, and varies the seed so different runs lay out variety differently.
+	_cell_variant[cell] = abs(hash(Vector3i(x, y, world_seed))) % VARIANTS
+	set_cell(cell, _source_ids[index], Vector2i.ZERO)
+
+
+## Art variant (0..VARIANTS-1) for a solid cell; 0 for unknown/empty cells.
+func cell_variant(cell: Vector2i) -> int:
+	return _cell_variant.get(cell, 0)
 
 
 # --- Digging API ---
@@ -506,6 +541,15 @@ func get_block_def(cell: Vector2i) -> Dictionary:
 	if sid == -1:
 		return {}
 	return BLOCKS[_id_to_index[sid]]
+
+
+## Block-type index (into BLOCKS) for a cell, or -1 if the cell is empty.
+## Used by the 3D terrain renderer to bucket cells onto per-type cube meshes.
+func block_index(cell: Vector2i) -> int:
+	var sid: int = get_cell_source_id(cell)
+	if sid == -1:
+		return -1
+	return _id_to_index.get(sid, -1)
 
 
 func dig(cell: Vector2i, damage: float) -> bool:
@@ -524,6 +568,7 @@ func dig(cell: Vector2i, damage: float) -> bool:
 	var show_numbers: bool = GameState.damage_numbers
 	if hp <= 0.0:
 		erase_cell(cell)
+		content_version += 1
 		_block_hp.erase(cell)
 		_ore_cells.erase(cell)
 		if show_numbers:
@@ -580,18 +625,39 @@ func nearest_poi(from: Vector2, count: int) -> Array:
 
 ## Shared "nearest N" over a dict keyed by Vector2i cells; returns the same
 ## { position, distance_m } entries (nearest first) the HUD compass consumes.
+## Runs each compass tick over a set that can hold thousands of ore cells, so it
+## does a single O(n) pass keeping only the `count` (≤4) nearest in a tiny sorted
+## list rather than allocating + fully sorting the whole map. Distances are
+## compared in local space (the layer's transform is a pure translation, so
+## squared distances match global) and only the few winners are converted to
+## global for the returned position.
 func _nearest_in(cells: Dictionary, from: Vector2, count: int) -> Array:
-	var all: Array = []
+	if count <= 0 or cells.is_empty():
+		return []
+	var from_local: Vector2 = to_local(from)
+	var best_pos: Array = []   # local positions, nearest-first
+	var best_d2: Array = []
+	var worst: float = INF
 	for cell in cells:
-		var pos := to_global(map_to_local(cell))
-		all.append({ "position": pos, "d2": from.distance_squared_to(pos) })
-	all.sort_custom(func(a, b): return a["d2"] < b["d2"])
+		var pos: Vector2 = map_to_local(cell)
+		var d2: float = from_local.distance_squared_to(pos)
+		if best_d2.size() >= count and d2 >= worst:
+			continue
+		var ins: int = best_d2.size()
+		while ins > 0 and best_d2[ins - 1] > d2:
+			ins -= 1
+		best_d2.insert(ins, d2)
+		best_pos.insert(ins, pos)
+		if best_d2.size() > count:
+			best_d2.remove_at(count)
+			best_pos.remove_at(count)
+		worst = best_d2[best_d2.size() - 1]
 
 	var out: Array = []
-	for i in range(mini(count, all.size())):
+	for i in range(best_pos.size()):
 		out.append({
-			"position": all[i]["position"],
-			"distance_m": sqrt(all[i]["d2"]) / TILE_SIZE * METERS_PER_TILE,
+			"position": to_global(best_pos[i]),
+			"distance_m": sqrt(best_d2[i]) / TILE_SIZE * METERS_PER_TILE,
 		})
 	return out
 
@@ -673,8 +739,9 @@ func _collapse_after_warning(start: Vector2i) -> void:
 	var collapsed := 0
 	var c := start
 	while collapsed < MAX_COLLAPSE and c.y > SURFACE_Y and is_solid(c):
-		var tex: Texture2D = load(get_block_def(c)["tex"])
+		var tex: Texture2D = load(variant_tex_path(block_index(c), cell_variant(c)))
 		erase_cell(c)
+		content_version += 1
 		_block_hp.erase(c)
 		_ore_cells.erase(c)
 		_spawn_debris(tex, c)
@@ -686,6 +753,12 @@ func _spawn_debris(tex: Texture2D, cell: Vector2i) -> void:
 	var d := DebrisScene.instantiate()
 	d.setup(tex, to_global(map_to_local(cell)), Vector2(randf_range(-30.0, 30.0), 24.0))
 	debris_container.add_child(d)
+
+
+## Whether any cell is currently mid-dig (has partial HP) — a cheap O(1) check the
+## crack overlay uses to skip its per-frame redraw when nothing's being drilled.
+func has_active_digs() -> bool:
+	return not _block_hp.is_empty()
 
 
 ## Cells currently mid-dig, with damage ratio (0..1), for the crack overlay.
@@ -742,6 +815,25 @@ func biome_at_depth(depth_m: float) -> String:
 func hazard_at(global_pos: Vector2) -> String:
 	var cell: Vector2i = local_to_map(to_local(global_pos))
 	return _hazard_cells.get(cell, "")
+
+
+## Hazard air-pockets overlapping a world-space rect, for the danger-zone tint
+## overlay. Returns [{ pos: Vector2 (cell centre, local=world), kind: String }].
+## Iterates only the (bounded) visible cell window, so it's cheap each frame even
+## when the Mantle holds thousands of tagged cells overall.
+func hazard_cells_in_rect(top_left: Vector2, bottom_right: Vector2) -> Array:
+	var out: Array = []
+	if _hazard_cells.is_empty():
+		return out
+	var c0: Vector2i = local_to_map(to_local(top_left))
+	var c1: Vector2i = local_to_map(to_local(bottom_right))
+	for cy in range(c0.y, c1.y + 1):
+		for cx in range(c0.x, c1.x + 1):
+			var cell := Vector2i(cx, cy)
+			var kind: String = _hazard_cells.get(cell, "")
+			if kind != "":
+				out.append({ "pos": map_to_local(cell), "kind": kind })
+	return out
 
 
 ## Deepest reachable depth in metres (bottom of the diggable terrain, i.e. just

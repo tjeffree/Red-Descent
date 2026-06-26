@@ -11,6 +11,20 @@ export/
 # Asset download cache (keep extracted assets/, drop the raw zips)
 assets/_downloads/
 
+# Large source PBR maps (the original 2048² baked .png / raw glTF .jpg). Godot
+# extracts its own small .webp textures from each .glb on import (those ARE
+# committed); these big originals are unused at runtime. Keep them locally only.
+assets/wreckage-model/*_Baked_*.png
+assets/wreckage-model/*_Baked_*.png.import
+assets/wreckage-model/*_normal.png
+assets/wreckage-model/*_normal.png.import
+assets/wreckage-model/wreckage-model-*_*.jpg
+assets/wreckage-model/wreckage-model-*_*.jpg.import
+
+# Source video (mp4). Godot plays the converted .ogv (committed); the mp4s are
+# the editing sources and stay local only.
+*.mp4
+
 # OS / editor
 .DS_Store
 Thumbs.db

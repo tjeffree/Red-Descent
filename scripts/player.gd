@@ -89,6 +89,9 @@ var dig_reach: int = 0   # extra tiles beyond the first, along the dig direction
 var ore_pings: int = 1
 var powerup_pings: int = 0
 var poi_pings: int = 0
+# Hazard-zone vision: the scanner (any tier) reveals the danger-zone tint overlay
+# (lava/gas/radiation washes); without it the deep hazards are unmarked.
+var hazard_vision: bool = false
 
 # Per-auger-level (side, reach). Index 0 = no upgrade (L0); L1 keeps the
 # original 3-wide shaft (side=1, reach=0). Growth alternates wider/deeper.
@@ -127,6 +130,8 @@ var terrain: TileMapLayer
 var debris_container: Node2D = null   # set by main.gd; holds cave-in debris chunks
 var _ascending: bool = false
 var _ascent_speed: float = 0.0
+var _ascent_distress: bool = false   # damaged auto-eject: the rig shudders on the way up
+var _shake_t: float = 0.0
 var thruster_charge: float = 0.9
 var _dash_timer: float = 0.0
 var _dash_cooldown_timer: float = 0.0
@@ -134,8 +139,7 @@ var _facing: int = 1
 var _base_mask: int = 0      # collision mask saved at spawn; dropped while phase-dashing
 var _phasing: bool = false   # true while a Phase Drive dash is passing through rock
 
-@onready var sprite: Sprite2D = $Sprite2D
-@onready var thruster_flame: Polygon2D = $ThrusterFlame
+@onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 
 
 func _ready() -> void:
@@ -160,20 +164,29 @@ func _apply_upgrades() -> void:
 	ore_pings = 2 if sc >= 1 else 1
 	powerup_pings = clampi(sc - 1, 0, 2)   # tier 2 -> 1, tier 3+ -> 2
 	poi_pings = 1 if sc >= 4 else 0
+	hazard_vision = sc >= 1                 # the scanner lights the hazard-zone tint
 
 
 func _physics_process(delta: float) -> void:
 	if _ascending:
-		_ascent_speed = minf(_ascent_speed + 1100.0 * delta, 900.0)
+		# A clean recall rockets straight up; a damaged auto-eject limps up slower
+		# and the rig shudders and lists, telegraphing that this run ended badly.
+		var cap: float = 600.0 if _ascent_distress else 900.0
+		_ascent_speed = minf(_ascent_speed + 1100.0 * delta, cap)
 		global_position.y -= _ascent_speed * delta
-		thruster_flame.visible = true
+		sprite.play("thrust")
+		if _ascent_distress:
+			_shake_t += delta
+			sprite.offset.x = sin(_shake_t * 57.0) * 3.5
+			sprite.offset.y = sin(_shake_t * 83.0) * 2.0
+			sprite.rotation = sin(_shake_t * 31.0) * 0.16
 		if terrain != null:
 			current_depth = terrain.depth_meters(global_position)
 		return
 
 	if destroyed:
 		_apply_gravity(delta)
-		thruster_flame.visible = false
+		sprite.play("jump")
 		move_and_slide()
 		return
 
@@ -195,8 +208,23 @@ func _physics_process(delta: float) -> void:
 		_apply_magnet()
 	_update_resources(delta)
 
-	thruster_flame.visible = is_thrusting
+	_update_animation()
 	move_and_slide()
+
+
+## Pick the rig pose from its current motion state. The thrust frames carry
+## their own exhaust flames, so there's no separate flame node to toggle.
+func _update_animation() -> void:
+	var anim: String
+	if not is_on_floor():
+		if is_thrusting:
+			anim = "thrust_side" if absf(velocity.x) > 12.0 else "thrust"
+		else:
+			anim = "jump"
+	else:
+		anim = "move" if absf(velocity.x) > 8.0 else "idle"
+	if sprite.animation != anim:
+		sprite.play(anim)
 
 
 ## Environmental pressure rises with depth below the crust: deeper = more
@@ -418,8 +446,11 @@ func _dig_axis(target: Vector2i) -> Vector2i:
 
 ## Begin the recall ascent: thrusters fire and the rig rockets up to the surface
 ## (collision disabled so it zips straight up the shaft) for run-end feedback.
-func start_ascent() -> void:
+## `distress` = a damaged auto-eject (death): the rig limps up slower and shudders.
+func start_ascent(distress: bool = false) -> void:
 	_ascending = true
+	_ascent_distress = distress
+	_shake_t = 0.0
 	_ascent_speed = 140.0
 	is_drilling = false
 	is_thrusting = true

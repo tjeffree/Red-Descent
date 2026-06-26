@@ -22,6 +22,8 @@ var hull_val: Label
 var info: Label
 var status: Label
 var banner: Label
+var banner_box: Panel
+var banner_style: StyleBoxFlat
 # Compass — a centred row of directional pips along the bottom, each an arrow +
 # a distance label, colour-coded by category: ore (cyan), salvage caches (amber),
 # point of interest (violet). How many of each shows is set by the rig's Seismic
@@ -34,6 +36,10 @@ const COMPASS_SLOTS := 7                  # 4 ore (Prospector cap) + 2 powerup +
 const COMPASS_ORE_MAX := 4                # ore arrows shown while Prospector Eye runs
 const COMPASS_Y := 660.0
 const COMPASS_SPACING := 92.0
+# The compass scans the live ore set, so recompute it on a ~10 Hz tick rather than
+# every frame — the pips don't need 60 Hz and the scan is the HUD's biggest cost.
+const COMPASS_INTERVAL := 0.1
+var _compass_timer: float = 0.0
 const COL_PING_ORE := Color(0.35, 0.85, 1.0)
 const COL_PING_PWR := Color(1.0, 0.78, 0.30)
 const COL_PING_POI := Color(0.82, 0.56, 1.0)
@@ -161,16 +167,36 @@ void fragment() {
 	status = _make_label("", 14)
 	vbox.add_child(status)
 
-	# Centred run-end / docking banner (hidden until a run ends).
+	# Centred run-end / docking banner (hidden until a run ends): bold text on a
+	# dark panel, pinned to the middle of the screen so it reads as a clear verdict
+	# rather than a subtle footnote.
+	banner_box = Panel.new()
+	banner_box.set_anchors_preset(Control.PRESET_CENTER)
+	banner_box.anchor_left = 0.5
+	banner_box.anchor_right = 0.5
+	banner_box.anchor_top = 0.5
+	banner_box.anchor_bottom = 0.5
+	banner_box.offset_left = -390.0
+	banner_box.offset_right = 390.0
+	banner_box.offset_top = -78.0
+	banner_box.offset_bottom = 78.0
+	banner_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	banner_style = StyleBoxFlat.new()
+	banner_style.bg_color = Color(0.04, 0.01, 0.01, 0.84)
+	banner_style.border_color = Color(1.0, 0.3, 0.2, 0.95)
+	banner_style.set_border_width_all(3)
+	banner_style.set_corner_radius_all(4)
+	banner_style.set_content_margin_all(18)
+	banner_box.add_theme_stylebox_override("panel", banner_style)
+	banner_box.visible = false
+	root.add_child(banner_box)
+
 	banner = _make_label("", 30)
+	banner.set_anchors_preset(Control.PRESET_FULL_RECT)
 	banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	banner.set_anchors_preset(Control.PRESET_CENTER)
-	banner.anchor_left = 0.0
-	banner.anchor_right = 1.0
-	banner.offset_top = 300.0
-	banner.offset_bottom = 360.0
-	banner.visible = false
-	root.add_child(banner)
+	banner.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	banner.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	banner_box.add_child(banner)
 
 	# Compass — a pool of directional pips (arrow + distance) pinned to the bottom
 	# centre. Slots are positioned each frame from however many categories are
@@ -362,9 +388,13 @@ func set_dock_prompt(text: String) -> void:
 	_dock_prompt = text
 
 
-func show_banner(text: String) -> void:
+## Centred run-end banner. `accent` tints the frame + text (red for a death,
+## green for a clean recall).
+func show_banner(text: String, accent: Color = Color(1.0, 0.3, 0.2)) -> void:
 	banner.text = text
-	banner.visible = true
+	banner.add_theme_color_override("font_color", accent)
+	banner_style.border_color = Color(accent.r, accent.g, accent.b, 0.95)
+	banner_box.visible = true
 
 
 func _update_compass(p: Node) -> void:
@@ -485,6 +515,8 @@ func update_boosts(p: Node) -> void:
 
 
 func _process(delta: float) -> void:
+	_compass_timer -= delta
+
 	if _warn_timer > 0.0:
 		_warn_timer -= delta
 
@@ -588,7 +620,11 @@ func update_stats(p: Node) -> void:
 	else:
 		info.text = "%s     DEPTH  %s m     ORE  %d     ALLOY  %d" % [biome_str, depth_str, p.ore_collected, GameState.alloy]
 
-	_update_compass(p)
+	# Compass is throttled to ~10 Hz (see _compass_timer, ticked in _process); the
+	# pips hold their last layout between recomputes.
+	if _compass_timer <= 0.0:
+		_compass_timer = COMPASS_INTERVAL
+		_update_compass(p)
 	update_boosts(p)
 
 	# Status line priority: transient warning > recall prompt > hazard > overheat > hint.

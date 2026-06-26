@@ -2,18 +2,27 @@ extends Node2D
 ## Red Descent — Dig crack overlay (block-breaking feedback)
 ##
 ## Draws cracks over any tile currently being drilled, growing with damage so a
-## block visibly fractures and looks "about to be destroyed". Must be a child of
-## the Terrain TileMapLayer so positions share its local space.
+## block visibly fractures and looks "about to be destroyed". The flat tilemap is
+## hidden by the 3D renderer, so this lives as a sibling under Main (on top of the
+## 3D layer, below the rig) and gets its terrain reference via setup(). Terrain is
+## at the origin, so terrain-local positions are also this node's local space.
 
 var _terrain: Node
+var _was_active: bool = false   # drew cracks last frame? (so we redraw once to clear)
 
 
-func _ready() -> void:
-	_terrain = get_parent()
+## Wired by main.gd; `t` is the Terrain TileMapLayer (the dig-state owner).
+func setup(t: Node) -> void:
+	_terrain = t
 
 
 func _process(_delta: float) -> void:
-	queue_redraw()
+	# Only redraw while something's actually being drilled (plus one frame after the
+	# last dig, to clear the final cracks) — the idle case is the overwhelming common one.
+	var active: bool = _terrain != null and _terrain.has_active_digs()
+	if active or _was_active:
+		queue_redraw()
+	_was_active = active
 
 
 func _draw() -> void:

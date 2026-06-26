@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/world.gd" id="2_world"]
@@ -6,6 +6,8 @@
 [ext_resource type="Script" path="res://scripts/hud.gd" id="4_hud"]
 [ext_resource type="Script" path="res://scripts/dig_cracks.gd" id="5_cracks"]
 [ext_resource type="Script" path="res://scripts/damage_numbers.gd" id="6_dmgnum"]
+[ext_resource type="Script" path="res://scripts/terrain_3d.gd" id="7_t3d"]
+[ext_resource type="Script" path="res://scripts/hazard_tint.gd" id="8_haztint"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1_main")
@@ -13,7 +15,13 @@ script = ExtResource("1_main")
 [node name="Terrain" type="TileMapLayer" parent="."]
 script = ExtResource("2_world")
 
-[node name="DigCracks" type="Node2D" parent="Terrain"]
+[node name="Terrain3D" type="Node" parent="."]
+script = ExtResource("7_t3d")
+
+[node name="HazardTint" type="Node2D" parent="."]
+script = ExtResource("8_haztint")
+
+[node name="DigCracks" type="Node2D" parent="."]
 script = ExtResource("5_cracks")
 
 [node name="Player" parent="." instance=ExtResource("3_player")]

@@ -30,6 +30,10 @@ const SHIP_PARTS: Array = [
 
 # Telemetry beacon: dives can start at a previously-reached 250 m milestone.
 const CHECKPOINT_STEP := 250.0
+# Deepest launch milestone offered. The Ruins begin at 1000 m and the escape
+# capsule sits ~50 m above the world floor (~1300 m), so a 1250 m launch drops
+# the rig straight onto the capsule — no dive at all. Cap at the Ruins entrance.
+const MAX_LAUNCH_DEPTH := 1000.0
 
 var alloy: int = 0
 var best_depth: float = 0.0
@@ -195,10 +199,12 @@ func ship_complete() -> bool:
 # --- Telemetry beacon (launch-depth checkpoints) ---
 
 ## Reachable launch depths: always 0.0 (Surface), plus each CHECKPOINT_STEP
-## milestone up to floor(best_depth/STEP)*STEP. Ascending, no duplicates.
+## milestone up to floor(best_depth/STEP)*STEP, capped at MAX_LAUNCH_DEPTH so the
+## deepest beacon never lands the rig on the escape capsule. Ascending, no dupes.
 func available_checkpoints() -> Array:
 	var out: Array = [0.0]
-	var count := int(floor(best_depth / CHECKPOINT_STEP))
+	var reach: float = minf(best_depth, MAX_LAUNCH_DEPTH)
+	var count := int(floor(reach / CHECKPOINT_STEP))
 	for i in range(1, count + 1):
 		out.append(float(i) * CHECKPOINT_STEP)
 	return out
@@ -243,6 +249,33 @@ func record_run(reason: String, ore: int, depth: float, banked: bool) -> void:
 	if banked:
 		alloy += ore * ALLOY_PER_ORE
 	best_depth = maxf(best_depth, depth)
+	save_game()
+
+
+# --- Reset (New Game) ---
+
+## True if there is any meta-progression worth keeping. Drives whether the menu
+## offers CONTINUE and whether NEW GAME needs an "are you sure?" confirmation.
+## Audio/display settings are preferences, not progress, so they don't count.
+func has_progress() -> bool:
+	return best_depth > 0.0 or alloy > 0 or not levels.is_empty() \
+		or repaired_count() > 0 or escaped \
+		or not seen_transmissions.is_empty() or not collected_logs.is_empty()
+
+
+## Wipe all run/meta-progression back to a fresh slate, then persist. Preserves
+## the player's settings (volumes, damage_numbers, fullscreen) since those are
+## preferences rather than game progress. Re-saving keeps the file consistent.
+func reset_game() -> void:
+	alloy = 0
+	best_depth = 0.0
+	last_run = {}
+	levels = {}
+	ship_repaired = {}
+	selected_start_m = 0.0
+	seen_transmissions = {}
+	collected_logs = {}
+	escaped = false
 	save_game()
 
 

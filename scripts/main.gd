@@ -8,17 +8,15 @@ extends Node2D
 const HUB_SCENE := "res://scenes/hub.tscn"
 const ENDGAME_SCENE := "res://scenes/endgame.tscn"
 const DOCK_RANGE := 46.0       # px from the capsule terminal that allows docking
-const DEATH_DELAY := 2.6       # banner time before returning after death
 const ASCENT_PAUSE := 0.5      # brief pause once the surface is reached
 const ASCENT_MAX := 3.5        # safety cap on the ascent animation
 
 # The crashed mother ship resting on the surface — the wreck we smelt Alloy to
-# repair (GameState ship-repair track). Drawn behind the rig over the descent
-# shaft (so the dive reads as launching from the wreck). The four sprites are
-# repair stages (0 = crashed wreck … 3 = fully repaired), picked from how many
+# repair (GameState ship-repair track). A flat 2D sprite (the craft and rig stay 2D
+# against the 3D surface/pit/blocks), drawn over the descent shaft. The four sprites
+# are repair stages (0 = crashed wreck … 3 = fully repaired), picked from how many
 # ship parts have been bought, so the surface ship visibly rebuilds across runs.
-# WRECKAGE_WIDTH is its on-screen width in world px, sized to sit inside the
-# 3x-zoom frame at spawn.
+# WRECKAGE_WIDTH is its on-screen width in world px.
 const WRECKAGE_TEX: Array[String] = [
 	"res://assets/generated/wreckage-0.png",
 	"res://assets/generated/wreckage-1.png",
@@ -26,11 +24,26 @@ const WRECKAGE_TEX: Array[String] = [
 	"res://assets/generated/wreckage-3.png",
 ]
 const WRECKAGE_WIDTH := 410.0
+# Source px trimmed off the bottom of the wreckage art (the docking-bay stairs and
+# dangling pipes). The sprite can't truly z-sort behind the 3D blocks, so instead we
+# crop the protruding stairs and rest the flat base edge on the block tops, which
+# reads as the hull sitting on the surface rather than overlapping the crust.
+const WRECKAGE_CROP_BOTTOM := 30
+
+# The escape capsule (lifeboat) at the very bottom of the shaft — the endgame dock.
+# Like the wreckage, a flat 2D sprite drawn over the 3D world (the rig stays 2D);
+# docking the rig here begins the endgame (see _process_diving). CAPSULE_WIDTH is its
+# on-screen width in world px — the chamber carved in world.gd is ~9 tiles wide.
+const CAPSULE_TEX := "res://assets/mars-capsule.png"
+const CAPSULE_WIDTH := 120.0
 
 @onready var player: CharacterBody2D = $Player
 @onready var terrain: TileMapLayer = $Terrain
+@onready var terrain_3d: Node = $Terrain3D
+@onready var hazard_tint: Node2D = $HazardTint
 @onready var debris: Node2D = $Debris
 @onready var damage_numbers: Node2D = $DamageNumbers
+@onready var dig_cracks: Node2D = $DigCracks
 @onready var hud: CanvasLayer = $HUD
 
 var _state: String = "diving"  # diving / ascending / ending
@@ -54,6 +67,8 @@ func _ready() -> void:
 	terrain.debris_container = debris
 	terrain.cavein.connect(_on_cavein)
 	damage_numbers.connect_terrain(terrain)
+	dig_cracks.setup(terrain)
+	hazard_tint.setup(terrain, player)
 
 	# Recall always rises to the TRUE surface, regardless of where we launched.
 	_surface_y = terrain.get_start_position().y
@@ -67,12 +82,57 @@ func _ready() -> void:
 	player.current_depth = terrain.depth_meters(player.global_position)
 	_current_biome = terrain.biome_at_depth(player.current_depth)
 
-	_place_wreckage()
+	_set_camera_bounds()                        # stop scrolling at the play-area walls (no overscroll into the void)
+
+	terrain_3d.setup(terrain, player, debris)   # 3D cube render; also hides the flat tiles
+	_place_capsule()                            # escape capsule at the shaft bottom (endgame dock)
+	_place_wreckage()                           # surface ship as a flat 2D sprite over the 3D world
 
 	Audio.music("dive")
 
 
-## Drop the crashed ship onto the surface crust, over the descent shaft.
+## Clamp the rig camera's horizontal scroll to the world's pixel bounds, so the view
+## stops at the indestructible boundary walls (columns 0 and W-1) instead of panning
+## past them into the open void/sky beyond the play area. Left/right only — vertical
+## stays free so the surface sky and the full descent remain visible. get_screen_center_position()
+## honours these limits, so the 3D backdrop (cubes, mountains, haze) stops in lockstep.
+func _set_camera_bounds() -> void:
+	var cam: Camera2D = player.get_node("Camera2D")
+	var half: float = terrain.TILE_SIZE * 0.5
+	var left: float = terrain.to_global(terrain.map_to_local(Vector2i(0, 0))).x - half
+	var right: float = terrain.to_global(terrain.map_to_local(Vector2i(terrain.W - 1, 0))).x + half
+	cam.limit_left = int(left)
+	cam.limit_right = int(right)
+
+
+## Seat the escape capsule on the floor of the chamber at the very bottom of the
+## shaft (terrain.capsule_position), centred on the dock column. A flat 2D sprite
+## over the 3D world; z_index keeps it behind the rig so the rig reads as docking
+## in front of it. Touching it (DOCK_RANGE) is the endgame trigger.
+func _place_capsule() -> void:
+	var tex: Texture2D = load(CAPSULE_TEX)
+	if tex == null or tex.get_width() == 0:
+		return
+	var s := Sprite2D.new()
+	s.texture = tex
+	s.centered = true
+	s.z_index = -5   # behind the rig, debris, and HUD
+
+	var scl: float = CAPSULE_WIDTH / float(tex.get_width())
+	s.scale = Vector2(scl, scl)
+
+	# capsule_position is the centre of the dock cell; its floor is half a tile below.
+	# Rest the capsule's base (the landing legs) on that floor, centred on the column.
+	var dock: Vector2 = terrain.capsule_position()
+	var floor_y: float = dock.y + terrain.TILE_SIZE * 0.5
+	var half_h: float = tex.get_height() * scl * 0.5
+	s.global_position = Vector2(dock.x, floor_y - half_h)
+
+	add_child(s)
+
+
+## Drop the crashed ship onto the surface crust, over the descent shaft. A flat 2D
+## sprite drawn over the 3D world (z_index keeps it behind the rig).
 func _place_wreckage() -> void:
 	var tex: Texture2D = load(WRECKAGE_TEX[_wreckage_stage()])
 	if tex == null or tex.get_width() == 0:
@@ -82,23 +142,30 @@ func _place_wreckage() -> void:
 	s.centered = true
 	s.z_index = -5   # behind the rig, debris, and HUD
 
+	# Crop the dangling stairs/pipes off the bottom so the hull doesn't overhang the
+	# blocks. region_rect drives both the drawn height and the centred placement.
+	var crop: int = mini(WRECKAGE_CROP_BOTTOM, tex.get_height() - 1)
+	var src_h: float = tex.get_height() - crop
+	s.region_enabled = true
+	s.region_rect = Rect2(0, 0, tex.get_width(), src_h)
+
 	var scl: float = WRECKAGE_WIDTH / float(tex.get_width())
 	s.scale = Vector2(scl, scl)
 
-	# Centre on the descent column; rest the hull on the surface crust, embedded
-	# a touch so it reads as crashed-into-the-ground rather than floating.
+	# Centre on the descent column; rest the cropped base edge on the surface crust
+	# (a 2px tuck closes the seam) so the hull reads as sitting behind the blocks.
 	var surface_top: float = terrain.SURFACE_Y * terrain.TILE_SIZE
-	var half_h: float = tex.get_height() * scl * 0.5
+	var half_h: float = src_h * scl * 0.5
 	s.global_position = Vector2(
 		terrain.get_start_position().x,
-		surface_top + 12.0 - half_h)
+		surface_top + 2.0 - half_h)
 
 	add_child(s)
 
 
-## Which repair-stage sprite (0..3) the surface ship should show. The fully
-## rebuilt art (stage 3, on its legs) is reserved for an actually-complete ship;
-## intermediate parts step the hull through stages 0-2.
+## Which repair-stage sprite (0..3) the surface ship should show. The fully rebuilt
+## art (stage 3) is reserved for an actually-complete ship; intermediate parts step
+## the hull through stages 0-2.
 func _wreckage_stage() -> int:
 	if GameState.ship_complete():
 		return WRECKAGE_TEX.size() - 1
@@ -153,17 +220,24 @@ func _process_diving(delta: float) -> void:
 		_die("POWER DEPLETED — battery dead")
 		return
 
-	# At the capsule terminal (shaft bottom) docking takes over from recall — this
-	# begins the endgame (GDD §7): the rig is sacrificed to launch the capsule.
+	# At the capsule terminal (shaft bottom) docking takes over from recall. The
+	# capsule is inert until the surface wreckage is fully restored — only then can
+	# the rig carry a charge big enough to wake it (see the endgame-gating doc).
 	if player.global_position.distance_to(terrain.capsule_position()) < DOCK_RANGE:
 		hud.set_return_available(false)
-		hud.set_dock_prompt("[E] DOCK — give the capsule the rig's power")
-		if Input.is_action_just_pressed("interact"):
-			hud.set_dock_prompt("")
-			Audio.stop_oneshots()   # cut any in-flight alarm before the cinematic
-			Audio.ui("confirm")
-			Audio.stop_loops()
-			get_tree().change_scene_to_file(ENDGAME_SCENE)
+		if GameState.ship_complete():
+			# Wreckage whole → dock and begin the endgame (GDD §7): the rig is
+			# sacrificed to launch the capsule.
+			hud.set_dock_prompt("[E] DOCK — give the capsule the rig's power")
+			if Input.is_action_just_pressed("interact"):
+				hud.set_dock_prompt("")
+				Audio.stop_oneshots()   # cut any in-flight alarm before the cinematic
+				Audio.ui("confirm")
+				Audio.stop_loops()
+				get_tree().change_scene_to_file(ENDGAME_SCENE)
+		else:
+			# Capsule is dead — the rig can't carry the power yet. Bounce home.
+			_reject_dock()
 		return
 	hud.set_dock_prompt("")
 
@@ -237,22 +311,50 @@ func _process_powerups() -> void:
 		hud.flash("!! LAST GASP — systems hold at 1% !!")
 
 
-## Recall: bank ore, then play the ascent animation back to the surface.
-func _recall() -> void:
+## Reached the capsule terminal but the wreckage isn't restored yet — the capsule
+## has no power and the rig can't carry a charge big enough to wake it. There's
+## nothing to do at a dead terminal, so auto-return to the surface with a banner
+## that names the wreckage as the reason. Ore is still banked (banked = true): the
+## trip down still pays out, since the player will hit the bottom several times
+## before the wreckage is whole. Reuses the recall ascent path — NOT the endgame
+## teardown — so it stays in the dive and never sets GameState.escaped.
+func _reject_dock() -> void:
+	hud.set_dock_prompt("")
 	hud.set_return_available(false)
-	GameState.record_run("RECALLED — ore smelted to alloy", player.ore_collected, player.current_depth, true)
-	hud.show_banner("RECALLING — ascending to surface...  (+%d alloy)" % player.ore_collected)
+	var parts_left: int = GameState.SHIP_PARTS.size() - GameState.repaired_count()
+	GameState.record_run("CAPSULE DEAD — rig can't carry the power", player.ore_collected, player.current_depth, true)
+	hud.show_banner(
+		"THE CAPSULE WON'T WAKE\n" +
+		"The rig can't carry a charge this big — not until the wreckage is whole.\n" +
+		"%d ship system(s) still to restore. Ascending...  (+%d alloy)" % [parts_left, player.ore_collected],
+		Color(0.95, 0.75, 0.25))
 	Audio.ui("confirm")
 	player.start_ascent()
 	_state = "ascending"
 	_timer = ASCENT_MAX
 
 
+## Recall: bank ore, then play the ascent animation back to the surface.
+func _recall() -> void:
+	hud.set_return_available(false)
+	GameState.record_run("RECALLED — ore smelted to alloy", player.ore_collected, player.current_depth, true)
+	hud.show_banner("RECALLING — ascending to surface...  (+%d alloy)" % player.ore_collected, Color(0.4, 0.9, 0.5))
+	Audio.ui("confirm")
+	player.start_ascent()
+	_state = "ascending"
+	_timer = ASCENT_MAX
+
+
+## Death (hull crushed / power lost): ore is lost and the rig is auto-ejected —
+## it limps back up the shaft in distress (shaking) to the surface wreckage, then
+## we return to the hub. Same ascent path as a recall, just damaged and joyless.
 func _die(reason: String) -> void:
 	hud.set_return_available(false)
+	hud.set_dock_prompt("")
 	Audio.stop_loops()
 	Audio.sfx("death")
 	GameState.record_run(reason, player.ore_collected, player.current_depth, false)
-	hud.show_banner(reason + "  (ore lost)\nReturning to the hub...")
-	_state = "ending"
-	_timer = DEATH_DELAY
+	hud.show_banner(reason + "\n(ore lost — emergency recall)", Color(1.0, 0.3, 0.2))
+	player.start_ascent(true)   # damaged auto-eject: shudder up to the surface
+	_state = "ascending"
+	_timer = ASCENT_MAX
