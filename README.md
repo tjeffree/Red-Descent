@@ -1,154 +1,94 @@
 # Red Descent
 
-A 2D procedural rogue-lite digging game. A stranded zero-g asteroid miner crash-lands
-on Mars and digs through the planet's hostile crust in ill-suited vacuum gear —
-scavenging ore to repair their ship, until what they uncover in the deep rewrites the
-whole reason they came. See `docs/` for the full design.
+A procedural rogue-lite digging game. A stranded zero-g asteroid miner crash-lands on Mars
+and drills down through the planet's hostile crust in ill-suited vacuum gear — scavenging ore
+to repair their ship, until what they uncover in the deep rewrites the whole reason they came.
 
-- **Engine:** Godot Engine **4.5** (GDScript only; mono build)
-- **Design docs:**
-  - `docs/Red_Descent_Game_Design_Document.pdf` — the GDD
-  - `docs/Red_Descent_Spec_Addendum.md` — engine/tooling decisions + per-phase status (authoritative)
-  - `docs/Red_Descent_Asset_Sourcing_Guide.md` — open-source asset selection & licenses
+Dig, balance your meters, cash out before something kills you, spend the haul on a better rig,
+and dive deeper. Built in **Godot 4.5**.
 
-The full game arc is implemented: **Main menu → Hub → Dive (Crust → Mantle → Ruins) →
-dock the ancient capsule → sacrifice the rig → launch to Earth → ending.**
+## Screenshots
 
-## Running
+|  |  |
+|---|---|
+| ![Main menu](docs/screenshots/menu.png) | ![The Wreckage hub](docs/screenshots/hub.png) |
+| **Main menu** | **The Wreckage** — your surface hub |
 
-1. Open Godot 4.5 → **Import** → select `project.godot` in this folder.
-2. Let Godot import assets (first open creates `.godot/` and `.import` sidecars).
-3. Press **F5** (Play). The start scene is `res://scenes/main_menu.tscn` (an intro
-   video plays behind the title); **Start Descent** goes to the hub.
+![A dive in progress](docs/screenshots/dive-deep.png)
+
+*A dive in progress — the crust is rendered as real 3D cubes (2.5D) lit by the rig's headlamp,
+with ore veins glinting cyan and the Heat / Energy / Hull meters up top.*
 
 ## The loop
 
-1. **The Wreckage (hub):** spend banked **Alloy** on permanent **rig upgrades** and on
-   **repairing your crashed ship**; pick a **launch depth** (telemetry beacon); then descend.
-2. **Dive:** drill downward, balancing three meters — **Heat** (drilling, terrain-dependent),
-   **Energy** (every action), **Hull** (overheat, cave-in debris, hazards).
-3. **Find ore:** the cyan **compass arrow(s)** point to the nearest ore; ore gets **richer
-   the deeper you go**.
-4. **Cash out:** press **`E`** to **Recall** any time — the rig rockets to the surface and the
-   ore is smelted into **Alloy**. Or **die** (Energy 0 / Hull crushed) and lose the carried ore.
-5. **Upgrade → dive deeper → reach the Ruins → escape.**
+1. **The Wreckage (hub).** Spend banked **Alloy** on permanent **rig upgrades** and on
+   **repairing your crashed ship**, pick how deep to launch, then descend.
+2. **Dig.** Drill in any direction while juggling three meters — **Heat** (drilling, hotter
+   the deeper you go), **Energy** (every action costs), and **Hull** (overheating, falling
+   debris, and hazards chew through it).
+3. **Find ore.** A cyan compass points to the nearest vein; ore gets richer the deeper you go.
+4. **Cash out.** Hit **Recall** any time and the rig rockets to the surface, smelting your ore
+   into Alloy. Push your luck and **die** — Energy 0 or Hull crushed — and you lose the haul.
+5. **Upgrade, dive deeper, reach the Ruins, and escape.**
 
-## Biomes (depth bands)
+## Where you're digging
 
-| Biome | Depth | Character |
+| Biome | Depth | What it's like |
 |---|---|---|
-| **The Crust** | 0–500 m | Dirt & rock, scattered ore, cave-ins. The easy dig. |
-| **The Mantle** | 500–1000 m | Dense basalt + permafrost, lava-tube caverns, **hazard pockets** (toxic **gas** corrodes hull, **lava** spikes heat, **radiation** scrambles the HUD), and rising **pressure** (more energy use, slower drill). |
-| **The Ruins** | 1000 m+ | Rigid, **indestructible bulkhead** architecture; drill through rusted **vault doors**; descend a guaranteed grand shaft to the silo at the bottom. |
+| **The Crust** | 0–500 m | Dirt and rock, scattered ore, the occasional cave-in. The easy dig. |
+| **The Mantle** | 500–1000 m | Dense basalt and permafrost, lava-tube caverns, and **hazard pockets** — toxic gas corrodes your hull, lava spikes your heat, radiation scrambles the HUD. Pressure rises the deeper you go. |
+| **The Ruins** | 1000 m+ | Indestructible bulkhead architecture and rusted vault doors. A grand shaft drops to whatever's waiting at the bottom. |
 
-## Progression
+## Your rig
 
-**Rig upgrades** (permanent, spent in Alloy):
+Banked Alloy buys permanent upgrades — bigger batteries for longer dives, a stronger drill,
+better cooling, tougher plating, a wider dig swath, and extra ore-compass pings. Separately,
+you pour Alloy into **repairing the crashed ship** on the surface, which visibly reassembles
+across runs. Every milestone of depth you reach unlocks a deeper **launch checkpoint**, so you
+don't re-dig from the top every time. All of it persists between runs.
 
-| Upgrade | Effect |
-|---|---|
-| Battery Cells | +max energy (longer dives) |
-| Drill Servo | +drill power (faster digging) |
-| Coolant Vanes | +heat venting (hotter terrain) |
-| Hull Plating | +max hull (survive hits) |
-| Wide Auger | directional dig swath, 5 levels — wider shaft digging down, taller tunnel digging sideways |
-| Seismic Scanner | more ore-compass pings |
+## Story
 
-**Ship repair** — spend Alloy on Hull Seal → Comms → Nav → Drive to rebuild the crashed
-ship on the surface (it visibly reassembles across runs). **Telemetry beacon** — every
-250 m of depth you reach unlocks a deeper **launch checkpoint**, so you don't re-dig from
-the top each run.
-
-All of this persists across runs and launches in `user://red_descent.save` (tune the
-catalogue in `scripts/game_state.gd`).
-
-## Story & telemetry
-
-Narrative content lives in the `Lore` autoload (`scripts/lore.gd`); every line has a pool
-of variants so it reads fresh across runs.
-
-- **Pilot logs** — transmissions fire as you cross depths, biomes, hazards, and cave-ins,
-  plus ambient chatter between beats.
-- **Data logs** — fabricated artifacts buried in the strata; dig near one to recover it.
-- **Earth Relay** — at the hub, Earth hails you with a new progress-gated message each
-  visit, drifting from routine reassurance into confusion and intrigue at what you're finding.
-- **Archive** — review every transmission, log, and data log (undiscovered ones show as
-  `[ENCRYPTED — dig deeper]`). Open with **`S`** / D-pad down in the hub.
-
-## The endgame
-
-At the bottom of the Ruins shaft, dock the dormant escape capsule (**`E`** at the terminal).
-Transferring power **permanently drains every rig upgrade** — the Ultimate Sacrifice. Then
-survive the silo's collapse as your rig is crushed in the dark, and launch toward Earth. A
-scripted cinematic (`scenes/endgame.tscn`) plays full-screen video for the reveal and launch
-beats when present (`assets/video/silo-reveal.ogv`, `launch.ogv`), with text-card fallbacks.
+The descent is narrated as you go. Pilot logs crackle in as you cross depths and stumble into
+hazards, buried **data logs** can be dug up out of the strata, and **Earth** hails you back at
+the hub — drifting from routine reassurance into confusion at what you keep finding down there.
+Review everything you've recovered in the hub **Archive**. The full arc runs from the crash all
+the way to docking an ancient capsule, sacrificing your rig to power it, and launching for home.
 
 ## Controls
 
-Everything routes through input **actions**, so keyboard and gamepad are always both active.
+Keyboard and gamepad are always both active.
 
 **Keyboard**
 
 | Action | Keys |
 |---|---|
 | Move / dig sideways | `A` `D` / `←` `→` (hold into terrain) |
-| Dig down | `S` / `↓` |
-| Dig up | hold `W` / `↑` into a block overhead |
-| Jump / Thrust | `Space` (tap = jump; hold in air = Micro-G booster) |
+| Dig down / up | `S` / `↓` · hold `W` / `↑` into a block overhead |
+| Jump / Thrust | `Space` (tap to jump; hold in air for the booster) |
 | Dash | `Shift` |
-| Recall / Dock (dive) · Buy / Repair (hub) | `E` / `Enter` |
+| Recall · Buy / Repair (hub) | `E` / `Enter` |
 | Launch descent (hub) | `Space` |
-| Cycle launch depth (hub) | `Shift` |
-| Archive (hub) | `S` |
 
-**Gamepad** — note the hub face buttons are intentionally placed by *position*, not letter:
+**Gamepad** — face buttons are placed by *position*, not letter (lettering differs across pads):
+left stick / D-pad to move and dig, **A** (bottom) to jump/thrust, **RB** to dash, **Y** (top)
+to recall or descend.
 
-| Action | Button |
-|---|---|
-| Move / dig | Left stick or D-pad (down = dig down) |
-| Jump / Thrust / Dig up | **A** (bottom) |
-| Dash | **RB** |
-| Recall / Dock (dive) | **Y** (top) |
-| Buy / Repair (hub) | **A** (bottom) |
-| Descend (hub) | **Y** (top) |
-| Cycle launch depth (hub) | **RB** |
-| Archive (hub) | D-pad down |
+## Play it
 
-The rig's collision box fits within one tile, so it moves through any tunnel it digs.
-Cave-in debris can be **drilled apart** (it also despawns quickly), so a fallen chunk never
-traps you — the lasting risk is the impact damage. The controller-hint diamond cues by
-position/colour since face-button lettering differs across controllers.
+Grab the latest build from the [**Releases page**](https://github.com/tjeffree/Red-Descent/releases),
+unzip, and run — no engine required.
 
-## Build status (Phases 1–9 — implemented & verified)
+### Running from source
 
-Prototype phases 1–5 (grid & movement, digging, procgen, game loop, physics cave-ins) plus
-the full Act 2/3 roadmap:
+If you'd rather build it yourself:
 
-- **6 — The Mantle & long-term spine:** deeper world, real biome bands, Mantle hazards +
-  pressure, ship-repair track, telemetry-beacon checkpoints, surface-ship repair visuals.
-- **7 — Telemetry & narrative:** pilot logs, buried data logs, Earth-relay contact, the hub
-  Archive, with bake-time variant pools.
-- **8 — The Ruins:** indestructible bulkhead architecture, drillable vault doors, a guaranteed
-  grand shaft, the silo discovery beat.
-- **9 — Climax & Endgame:** dock the capsule, sacrifice the rig, collapse survival, launch to
-  Earth, ending card.
+1. Open Godot 4.5, choose **Import**, and select `project.godot` in this folder.
+2. Let Godot import the assets on first open.
+3. Press **F5** to play.
 
-See `docs/Red_Descent_Spec_Addendum.md` for the detailed per-phase implementation log.
+## Credits
 
-## Project layout
-
-```
-project.godot          autoloads: GameState, Lore
-scenes/                main_menu.tscn · hub.tscn · main.tscn (dive) · endgame.tscn · player.tscn · debris.tscn
-scripts/               main_menu, hub, main, world, player, hud, lore, game_state, debris, button_diamond, dig_cracks
-assets/                CC0 art/audio + generated tiles, intro/endgame video (see CREDITS.txt)
-docs/                  design + asset docs
-_tools/                asset-generation scripts (make_ore.py, make_wreckage.py)
-```
-
-## What's next (not yet built)
-
-- The **launch** endgame clip (`assets/video/launch.ogv`) — drop the mp4 in and it wires up.
-- Tether cables & kinetic-impactor bombs (GDD §3).
-- Bespoke rig art and a fuller Martian recolour of the terrain.
-- Balance/pacing polish across the full run (lockdown length, ore/heat/pressure tuning).
+Some of the art is my own; the rest, along with the audio, is CC0 (mostly
+[Kenney](https://kenney.nl)) and OpenGameArt — see `CREDITS.txt` for full provenance and
+licensing. Design notes live in `docs/`.
