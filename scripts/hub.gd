@@ -30,9 +30,13 @@ const COL_PAD_BG := Color(0.28, 0.32, 0.40)
 const COL_PAD_BORDER := Color(0.55, 0.62, 0.74)
 const COL_PAD_FG := Color(0.93, 0.96, 1.0)
 
-# Ship-repair tiles are laid out one-per-row in their own grid.
-const SHIP_COLS := 2
-const SHIP_TILE_SIZE := Vector2(330, 58)
+# Ship-repair tiles live in the right-hand column, stacked one-per-row.
+const SHIP_COLS := 1
+const SHIP_TILE_SIZE := Vector2(452, 56)
+
+# Right-hand column origin (Ship Repair sits beside the rig-upgrade grid, which
+# ends near x=742). Both section headers line up vertically.
+const RIGHT_X := 770.0
 
 var _font: FontFile
 # Unified cursor: 0..UPGRADES.size()-1 select upgrades; the rest select ship
@@ -44,7 +48,9 @@ var _ship_tiles: Array[Panel] = []   # ship-repair tiles
 var _msg: Label
 var _ship_bar: Label
 var _ship_teaser: Label
-var _launch_label: Label
+var _launch_btn: Button             # bottom action bar: cycles the launch depth
+var _buttons: Array[Button] = []    # bottom action bar — part of the unified nav grid
+var _comms_box: VBoxContainer       # bottom-left narrative strip (relay/last-run/status)
 var _launch_idx: int = 0             # index into available_checkpoints()
 
 # Phase 7: narrative — Earth-relay panel + archive overlay.
@@ -96,7 +102,7 @@ func _ready() -> void:
 	var rig := TextureRect.new()
 	rig.texture = load(RIG_TEX)
 	rig.scale = Vector2(0.36, 0.36)
-	rig.position = Vector2(773, 455)   # feet on the ground top (y≈605), clear of the control hints
+	rig.position = Vector2(1010, 455)  # feet on the ground top (y≈605); shifted right of the relay text
 	rig.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(rig)
 
@@ -124,54 +130,60 @@ func _ready() -> void:
 		_tiles.append(tile)
 		grid.add_child(tile)
 
-	# --- Ship repair (GDD §7) ---
-	box.add_child(_spacer(4))
+	# --- Ship repair (GDD §7) — right-hand column, beside the upgrade grid ---
+	var ship_box := VBoxContainer.new()
+	ship_box.position = Vector2(RIGHT_X, 158)
+	ship_box.add_theme_constant_override("separation", 8)
+	ship_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(ship_box)
+
 	var ship_hdr := HBoxContainer.new()
 	ship_hdr.add_theme_constant_override("separation", 16)
-	ship_hdr.add_child(_label("SHIP REPAIR — CAPSULE POWER", 20))
+	ship_hdr.add_child(_label("SHIP REPAIR", 20))
 	_ship_bar = _label("", 18)
 	ship_hdr.add_child(_ship_bar)
-	box.add_child(ship_hdr)
+	ship_box.add_child(ship_hdr)
 
 	var ship_grid := GridContainer.new()
 	ship_grid.columns = SHIP_COLS
 	ship_grid.add_theme_constant_override("h_separation", 12)
 	ship_grid.add_theme_constant_override("v_separation", 8)
-	box.add_child(ship_grid)
+	ship_box.add_child(ship_grid)
 
 	for i in range(GameState.SHIP_PARTS.size()):
 		var stile := _make_ship_tile(i)
 		_ship_tiles.append(stile)
 		ship_grid.add_child(stile)
 
-	_ship_teaser = _label("", 15)
-	_ship_teaser.add_theme_color_override("font_color", COL_MAXED)
-	box.add_child(_ship_teaser)
+	# Bottom-left narrative strip: the Earth relay, last-run record, ship-repair
+	# flavour and action feedback all flow here in a single column, clear of the
+	# right-hand ship panel above and the controls legend below.
+	_comms_box = VBoxContainer.new()
+	_comms_box.position = Vector2(70, 470)
+	_comms_box.custom_minimum_size = Vector2(680, 0)
+	_comms_box.add_theme_constant_override("separation", 6)
+	_comms_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(_comms_box)
 
-	# --- Telemetry beacon: launch-depth selector ---
-	box.add_child(_spacer(6))
-	_launch_label = _label("", 20)
-	_launch_label.add_theme_color_override("font_color", COL_SEL)
-	box.add_child(_launch_label)
-
-	# Status read-outs (last run + action feedback) live in the open right-hand
-	# comms column, NOT the bottom flow — that bottom strip is reserved for the
-	# controls legend, and flowing them there collides with it once they fill in.
 	if not GameState.last_run.is_empty():
 		var lr: Dictionary = GameState.last_run
 		var fate := "+%d alloy" % int(lr.get("ore", 0)) if lr.get("banked", false) else "ore lost"
 		var lr_lbl := _label("Last run: %s  ·  %d m  ·  %s" % [String(lr.get("reason", "")), int(lr.get("depth", 0)), fate], 15)
 		lr_lbl.add_theme_color_override("font_color", COL_POOR)
-		lr_lbl.position = Vector2(772, 400)
-		layer.add_child(lr_lbl)
+		_comms_box.add_child(lr_lbl)
+
+	_ship_teaser = _label("", 15)
+	_ship_teaser.add_theme_color_override("font_color", COL_MAXED)
+	_ship_teaser.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_ship_teaser.custom_minimum_size = Vector2(680, 0)
+	_comms_box.add_child(_ship_teaser)
 
 	_msg = _label("", 15)
-	_msg.position = Vector2(772, 432)
-	layer.add_child(_msg)
+	_comms_box.add_child(_msg)
 
-	# Controls legend (keyboard left, gamepad right) — built absolutely along the
-	# bottom so it isn't pushed around by the flowing shop content above.
-	_build_controls()
+	# Clickable action bar along the bottom (mouse). Keyboard/gamepad still drive
+	# everything through the input actions handled in _unhandled_input.
+	_build_action_bar()
 
 	# Start the launch selector on the saved depth (clamped to what's unlocked).
 	_launch_idx = _checkpoint_index(GameState.selected_start_m)
@@ -203,7 +215,10 @@ func _make_tile(index: int) -> Panel:
 
 	var tile := Panel.new()
 	tile.custom_minimum_size = TILE_SIZE
-	tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Clickable to select (its inner labels/icon stay mouse-transparent so the
+	# click lands on the Panel). Keyboard/gamepad still select via the arrows.
+	tile.mouse_filter = Control.MOUSE_FILTER_STOP
+	tile.gui_input.connect(_on_tile_input.bind(index))
 
 	var inner := VBoxContainer.new()
 	inner.name = "inner"
@@ -253,7 +268,8 @@ func _make_ship_tile(index: int) -> Panel:
 
 	var tile := Panel.new()
 	tile.custom_minimum_size = SHIP_TILE_SIZE
-	tile.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tile.mouse_filter = Control.MOUSE_FILTER_STOP
+	tile.gui_input.connect(_on_tile_input.bind(_n_upgrades() + index))
 
 	var row := HBoxContainer.new()
 	row.name = "row"
@@ -391,7 +407,7 @@ func _refresh() -> void:
 	# Ship progress bar + completion teaser.
 	var total: int = GameState.SHIP_PARTS.size()
 	var done_n := int(round(GameState.ship_progress() * total))
-	_ship_bar.text = "CAPSULE POWER  %d/%d systems" % [done_n, total]
+	_ship_bar.text = "CAPSULE POWER  %d/%d" % [done_n, total]
 	_ship_bar.add_theme_color_override("font_color", COL_MAXED if GameState.ship_complete() else COL_TEXT)
 	# When incomplete, signpost the gate: the capsule can't launch until the wreckage
 	# is whole. When complete, the original drive-telemetry teaser.
@@ -403,16 +419,25 @@ func _refresh() -> void:
 		_ship_teaser.add_theme_color_override("font_color", COL_TEXT)
 
 	_refresh_launch()
+	_refresh_buttons()
 
 
-## Update the telemetry-beacon launch-depth line.
+## Update the telemetry-beacon launch-depth button label.
 func _refresh_launch() -> void:
 	var cps := GameState.available_checkpoints()
 	_launch_idx = clampi(_launch_idx, 0, cps.size() - 1)
 	var d: float = float(cps[_launch_idx])
 	var where := "Surface" if d <= 0.0 else "%d m" % int(d)
-	var hint := "" if cps.size() <= 1 else "   [Shift] cycle"
-	_launch_label.text = "LAUNCH FROM:  %s%s" % [where, hint]
+	if _launch_btn != null:
+		_launch_btn.text = "LAUNCH FROM:  %s" % where
+
+
+## Advance the telemetry beacon to the next unlocked launch depth.
+func _cycle_launch() -> void:
+	var cps := GameState.available_checkpoints()
+	_launch_idx = (_launch_idx + 1) % cps.size()
+	_refresh_launch()
+	Audio.ui("click")
 
 
 func _tile_style(bg: Color, border: Color, sel: bool) -> StyleBoxFlat:
@@ -555,80 +580,88 @@ func _icon_scanner(icon: Control, r: Rect2, c: Color) -> void:
 	icon.draw_circle(ctr + Vector2(cos(deg_to_rad(215.0)), sin(deg_to_rad(215.0))) * (base * 1.7), 3.5, c)
 
 
-# --- Controls legend --------------------------------------------------------
+# --- Bottom action bar ------------------------------------------------------
 
-## Build the bottom controls legend: keyboard key-caps on the left (three
-## bindings per row, in aligned columns), gamepad cues on the right. Gamepad
-## face buttons use the position+colour diamond (no letters — they vary between
-## controllers); the shoulder / stick controls are listed as chips so they read
-## as distinct from the face buttons.
-func _build_controls() -> void:
-	var kb := GridContainer.new()
-	kb.columns = 6                       # chip, action, ×3 → three bindings/row
-	kb.add_theme_constant_override("h_separation", 8)
-	kb.add_theme_constant_override("v_separation", 8)
-	kb.position = Vector2(70, 656)
-	kb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_layer.add_child(kb)
-	for b in [["Arrows", "Select"], ["E", "Buy / Repair"], ["Shift", "Launch depth"],
-			["Space", "Descend"], ["S", "Archive"]]:
-		kb.add_child(_chip(b[0], COL_KEY_BG, COL_KEY_BORDER, COL_KEY_FG))
-		kb.add_child(_legend_action(b[1]))
+## Build the bottom action bar: real clickable buttons (mouse) that are ALSO
+## part of the unified controller/keyboard navigation — the cursor can land on
+## them and [A]/[E] activates them. They stay focus-free so Godot's own focus
+## traversal never fights the geometric navigation in _navigate().
+## Registration order defines their nav index (see _confirm_selection): 0 launch,
+## 1 archive, 2 descend.
+func _build_action_bar() -> void:
+	var bar := HBoxContainer.new()
+	bar.position = Vector2(70, 656)
+	bar.add_theme_constant_override("separation", 12)
+	_layer.add_child(bar)
 
-	# Gamepad: face buttons (A / Y) via the diamond.
-	var diamond := Control.new()
-	diamond.set_script(load("res://scripts/button_diamond.gd"))
-	diamond.position = Vector2(980, 572)
-	diamond.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_layer.add_child(diamond)
-	diamond.configure(_font, { "A": "Buy / Repair", "Y": "Descend" })
+	_launch_btn = _action_button("LAUNCH FROM:  Surface", false)
+	_launch_btn.pressed.connect(_cycle_launch)
+	bar.add_child(_launch_btn)
+	_buttons.append(_launch_btn)
 
-	# Gamepad: shoulder buttons (RB / LB) — chips, NOT face-button colours.
-	var pad := GridContainer.new()
-	pad.columns = 2
-	pad.add_theme_constant_override("h_separation", 8)
-	pad.add_theme_constant_override("v_separation", 6)
-	pad.position = Vector2(980, 644)
-	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_layer.add_child(pad)
-	for b in [["RB", "Launch depth"], ["LB", "Archive"]]:
-		pad.add_child(_chip(b[0], COL_PAD_BG, COL_PAD_BORDER, COL_PAD_FG))
-		pad.add_child(_legend_action(b[1]))
+	var archive := _action_button("ARCHIVE", false)
+	archive.pressed.connect(func() -> void:
+		_set_archive(not _archive_open)
+		Audio.ui("open" if _archive_open else "close"))
+	bar.add_child(archive)
+	_buttons.append(archive)
 
-	var nav := _label("Stick / D-pad  ·  select", 13)
-	nav.add_theme_color_override("font_color", COL_POOR)
-	nav.position = Vector2(980, 700)
-	nav.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_layer.add_child(nav)
+	var descend := _action_button("DESCEND", true)   # primary action — accent style
+	descend.pressed.connect(_launch_dive)
+	bar.add_child(descend)
+	_buttons.append(descend)
 
 
-## A rounded "cap" chip sized to its text (used for both key-caps and pad cues).
-func _chip(text: String, bg: Color, border: Color, fg: Color) -> Label:
-	var l := _label(text, 14)
-	l.add_theme_color_override("font_color", fg)
-	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+## A styled, clickable action button. `primary` gives it the gold accent
+## treatment (used for Descend); the rest use the dark-red panel styling. Base
+## colours are stashed as meta so _refresh_buttons() can repaint the selected one.
+func _action_button(text: String, primary: bool) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE        # never grab focus — keep arrow/stick nav intact
+	b.add_theme_font_override("font", _font)
+	b.add_theme_font_size_override("font_size", 16)
+
+	var bg := COL_SEL if primary else Color(0.18, 0.08, 0.07, 1.0)
+	var border := COL_SEL if primary else Color(0.50, 0.22, 0.18, 1.0)
+	var fg := COL_KEY_FG if primary else COL_TEXT
+	b.add_theme_color_override("font_color", fg)
+	b.add_theme_color_override("font_hover_color", fg)
+	b.add_theme_color_override("font_pressed_color", fg)
+	b.set_meta("bg", bg)
+	b.set_meta("border", border)
+
+	b.add_theme_stylebox_override("normal", _button_style(bg, border))
+	b.add_theme_stylebox_override("hover", _button_style(bg.lightened(0.12), COL_SEL))
+	b.add_theme_stylebox_override("pressed", _button_style(bg.darkened(0.15), COL_SEL))
+	return b
+
+
+## Repaint the action buttons so the focused one carries a bright selection ring
+## (mirrors the tile highlight). Driven from _refresh().
+func _refresh_buttons() -> void:
+	for i in range(_buttons.size()):
+		var b := _buttons[i]
+		var sel := (_n_total() + i) == _selected
+		var bg: Color = b.get_meta("bg")
+		var border: Color = b.get_meta("border")
+		if sel:
+			b.add_theme_stylebox_override("normal", _button_style(bg.lightened(0.18), COL_TEXT))
+		else:
+			b.add_theme_stylebox_override("normal", _button_style(bg, border))
+
+
+func _button_style(bg: Color, border: Color) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = bg
-	sb.set_corner_radius_all(5)
+	sb.set_corner_radius_all(6)
 	sb.set_border_width_all(2)
 	sb.border_color = border
-	sb.content_margin_left = 8
-	sb.content_margin_right = 8
-	sb.content_margin_top = 2
-	sb.content_margin_bottom = 2
-	l.add_theme_stylebox_override("normal", sb)
-	return l
-
-
-## A legend action label, vertically centred so it lines up with its chip.
-func _legend_action(text: String) -> Label:
-	var l := _label(text, 14)
-	l.add_theme_color_override("font_color", COL_TEXT)
-	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	return l
+	sb.content_margin_left = 16
+	sb.content_margin_right = 16
+	sb.content_margin_top = 8
+	sb.content_margin_bottom = 8
+	return sb
 
 
 func _label(text: String, size: int) -> Label:
@@ -647,12 +680,78 @@ func _spacer(h: int) -> Control:
 
 ## True if the cursor is currently on a ship-repair tile (vs. an upgrade tile).
 func _on_ship() -> bool:
-	return _selected >= _n_upgrades()
+	return _selected >= _n_upgrades() and _selected < _n_total()
 
 
-## Column-width of the group the cursor is in (for up/down row jumps).
-func _cur_cols() -> int:
-	return SHIP_COLS if _on_ship() else GRID_COLS
+## True if the cursor is on one of the bottom action buttons.
+func _on_button() -> bool:
+	return _selected >= _n_total()
+
+
+# --- Unified spatial navigation ---------------------------------------------
+# The cursor flows over a single ordered list of focusable controls — the
+# upgrade tiles, then the ship-repair tiles, then the bottom action buttons.
+# Navigation is geometric: a direction press jumps to the nearest control whose
+# centre lies that way, so the layout reads naturally (right from the last
+# upgrade lands on Ship Repair; down from any tile drops into the buttons).
+
+func _nav_count() -> int:
+	return _n_total() + _buttons.size()
+
+
+## The Control backing nav index `i` (upgrade tile / ship tile / action button).
+func _nav_node(i: int) -> Control:
+	if i < _n_upgrades():
+		return _tiles[i]
+	if i < _n_total():
+		return _ship_tiles[i - _n_upgrades()]
+	return _buttons[i - _n_total()]
+
+
+func _nav_rect(i: int) -> Rect2:
+	return _nav_node(i).get_global_rect()
+
+
+## Nearest focusable control in direction `dir` (a unit axis vector), or -1.
+## A candidate counts only as a genuine move that way: its centre must lie ahead
+## along the axis AND it must overlap the current control on the cross axis (so a
+## RIGHT press only finds something actually beside the cursor, never a diagonal
+## jump). Ties break by axis distance plus a small penalty for perpendicular drift.
+func _best_in_dir(dir: Vector2) -> int:
+	var cur := _nav_rect(_selected)
+	var cc := cur.get_center()
+	var horizontal := absf(dir.x) > 0.5
+	var best := -1
+	var best_score := INF
+	for i in range(_nav_count()):
+		if i == _selected:
+			continue
+		var r := _nav_rect(i)
+		var d := r.get_center() - cc
+		var along := d.dot(dir)
+		if along <= 1.0:                       # must actually lie in that direction
+			continue
+		var overlap: bool
+		if horizontal:
+			overlap = r.position.y < cur.end.y and r.end.y > cur.position.y
+		else:
+			overlap = r.position.x < cur.end.x and r.end.x > cur.position.x
+		if not overlap:                        # must be flanked on the cross axis
+			continue
+		var perp := absf(d.dot(Vector2(dir.y, -dir.x)))
+		var score := along + perp * 2.0
+		if score < best_score:
+			best_score = score
+			best = i
+	return best
+
+
+func _navigate(dir: Vector2) -> void:
+	var to := _best_in_dir(dir)
+	if to >= 0 and to != _selected:
+		_selected = to
+		_refresh()
+		Audio.ui("focus")
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -678,12 +777,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 
-	# Gamepad face buttons are remapped IN THE HUB so BUY/REPAIR sits on the
-	# bottom button (A) and DESCEND on the top (Y) — the opposite of the global
-	# bindings, which keep jump on A for the dive. Consume the event so the
-	# action-based branches below (where A=jump, Y=interact) don't also fire.
+	# Gamepad face buttons are remapped IN THE HUB so SELECT (Buy/Repair) sits on
+	# either of the lower face buttons — A (bottom) or B (right) — and DESCEND on
+	# the top (Y). This is the opposite of the global bindings, which keep jump on
+	# A for the dive. Consume the event so the action-based branches below (where
+	# A=jump, Y=interact) don't also fire.
 	if event is InputEventJoypadButton and event.pressed:
-		if event.button_index == JOY_BUTTON_A:        # bottom
+		if event.button_index == JOY_BUTTON_A or event.button_index == JOY_BUTTON_B:
 			_confirm_selection()
 			get_viewport().set_input_as_handled()
 			return
@@ -691,39 +791,46 @@ func _unhandled_input(event: InputEvent) -> void:
 			_launch_dive()
 			return
 
-	var total := _n_total()
 	if event.is_action_pressed("ui_right"):
-		_selected = (_selected + 1) % total
-		_refresh()
-		Audio.ui("focus")
+		_navigate(Vector2.RIGHT)
 	elif event.is_action_pressed("ui_left"):
-		_selected = (_selected - 1 + total) % total
-		_refresh()
-		Audio.ui("focus")
+		_navigate(Vector2.LEFT)
 	elif event.is_action_pressed("ui_down"):
-		# Step down one row within the current group; spill into the next group.
-		_selected = clampi(_selected + _cur_cols(), 0, total - 1)
-		_refresh()
-		Audio.ui("focus")
+		_navigate(Vector2.DOWN)
 	elif event.is_action_pressed("ui_up"):
-		_selected = clampi(_selected - _cur_cols(), 0, total - 1)
-		_refresh()
-		Audio.ui("focus")
+		_navigate(Vector2.UP)
 	elif event.is_action_pressed("dash"):
 		# Telemetry beacon: cycle the launch depth (Shift / gamepad RB).
-		var cps := GameState.available_checkpoints()
-		_launch_idx = (_launch_idx + 1) % cps.size()
-		_refresh_launch()
-		Audio.ui("click")
+		_cycle_launch()
 	elif event.is_action_pressed("interact"):
 		_confirm_selection()
 	elif event.is_action_pressed("jump"):
 		_launch_dive()
 
 
-## Buy the selected upgrade or repair the selected ship part (keyboard E/Enter,
-## or the gamepad bottom face button in the hub).
+## Left-click on a tile selects it and commits the purchase/repair — selecting a
+## tile IS the buy/repair action, so the mouse path mirrors [A]/[E] on a focused
+## tile.
+func _on_tile_input(event: InputEvent, sel_index: int) -> void:
+	if _archive_open:
+		return
+	if event is InputEventMouseButton and event.pressed \
+			and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		_selected = sel_index
+		_refresh()
+		_confirm_selection()
+
+
+## Activate the focused control: buy the selected upgrade, repair the selected
+## ship part, or trigger the focused action button (keyboard E/Enter, gamepad
+## A/B). Action buttons own their own side effects, so don't double-refresh them.
 func _confirm_selection() -> void:
+	if _on_button():
+		match _selected - _n_total():
+			0: _cycle_launch()
+			1: _set_archive(not _archive_open); Audio.ui("open" if _archive_open else "close")
+			2: _launch_dive()
+		return
 	if _on_ship():
 		_do_repair()
 	else:
@@ -783,45 +890,38 @@ func _present_earth_comm() -> void:
 		"alloy": GameState.alloy,
 		"shippct": int(round(GameState.ship_progress() * 100.0)),
 	}
+	var pw := 680.0
 	var comm := Lore.next_earth_comm()
 	if comm.is_empty():
 		# No new gated traffic — drop a bit of repeatable ambient chatter instead.
-		var quiet := _label(Lore.from_pool(Lore.AMBIENT_EARTH, fill), 14)
+		var quiet := _label(Lore.from_pool(Lore.AMBIENT_EARTH, fill), 15)
 		quiet.add_theme_color_override("font_color", COL_RELAY_HDR.darkened(0.35))
 		quiet.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		quiet.position = Vector2(772, 160)
-		quiet.custom_minimum_size = Vector2(400, 0)
-		quiet.size = Vector2(400, 0)
-		_layer.add_child(quiet)
+		quiet.custom_minimum_size = Vector2(pw, 0)
+		_comms_box.add_child(quiet)
+		_comms_box.move_child(quiet, 0)        # narrative sits at the top of the strip
 		# Track it like the full relay panel so the archive overlay hides it too.
 		_relay_panel = quiet
 		return
 
-	# Cyan relay panel in the open right-hand column — distinct from the dark-red
-	# hub, and clear of the upgrade grid (which ends near x=740).
-	var pw := 400.0
-	var panel := Panel.new()
+	# Cyan relay panel — distinct from the dark-red hub. A PanelContainer so it
+	# sizes to its content inside the bottom-left comms strip.
+	var panel := PanelContainer.new()
 	panel.custom_minimum_size = Vector2(pw, 0)
-	panel.position = Vector2(772.0, 150.0)
-	panel.size.x = pw
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = COL_RELAY_BG
 	sb.set_corner_radius_all(8)
 	sb.set_border_width_all(3)
 	sb.border_color = COL_RELAY_BORDER
-	sb.set_content_margin_all(16)
+	sb.set_content_margin_all(14)
 	panel.add_theme_stylebox_override("panel", sb)
-	_layer.add_child(panel)
+	_comms_box.add_child(panel)
+	_comms_box.move_child(panel, 0)            # narrative sits at the top of the strip
 	_relay_panel = panel
 
 	var col := VBoxContainer.new()
-	col.set_anchors_preset(Control.PRESET_FULL_RECT)
-	col.offset_left = 16
-	col.offset_top = 16
-	col.offset_right = -16
-	col.offset_bottom = -16
-	col.add_theme_constant_override("separation", 8)
+	col.add_theme_constant_override("separation", 6)
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(col)
 
@@ -856,10 +956,12 @@ func _build_archive() -> void:
 	_layer.add_child(root)
 	_archive = root
 
+	# STOP so the overlay swallows clicks instead of leaking them to the action
+	# buttons underneath while the archive is open.
 	var dim := ColorRect.new()
 	dim.color = Color(0.03, 0.015, 0.015, 1.0)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
-	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
 	root.add_child(dim)
 
 	var scroll := ScrollContainer.new()
@@ -878,11 +980,13 @@ func _build_archive() -> void:
 	content.add_theme_constant_override("separation", 6)
 	scroll.add_child(content)
 
-	var hint := _label("[S] / [Esc]  close archive          ↑/↓ stick  scroll", 16)
-	hint.add_theme_color_override("font_color", COL_SEL)
-	hint.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	hint.position = Vector2(70, 696)
-	root.add_child(hint)
+	# Clickable close (mouse); [S] / [Esc] / [LB] still close via _unhandled_input.
+	var close := _action_button("CLOSE", true)
+	close.position = Vector2(1130, 28)
+	close.pressed.connect(func() -> void:
+		_set_archive(false)
+		Audio.ui("close"))
+	root.add_child(close)
 
 
 ## Open/close the archive overlay, rebuilding its content on open so it always
