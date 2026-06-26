@@ -784,8 +784,11 @@ func _unhandled_input(event: InputEvent) -> void:
 	# A=jump, Y=interact) don't also fire.
 	if event is InputEventJoypadButton and event.pressed:
 		if event.button_index == JOY_BUTTON_A or event.button_index == JOY_BUTTON_B:
-			_confirm_selection()
+			# Mark handled BEFORE _confirm_selection — it may launch a dive
+			# (change_scene_to_file), which detaches this node so get_viewport()
+			# would return null afterwards.
 			get_viewport().set_input_as_handled()
+			_confirm_selection()
 			return
 		if event.button_index == JOY_BUTTON_Y:        # top
 			_launch_dive()
