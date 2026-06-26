@@ -8,6 +8,7 @@ extends Node2D
 ## at the origin, so terrain-local positions are also this node's local space.
 
 var _terrain: Node
+var _was_active: bool = false   # drew cracks last frame? (so we redraw once to clear)
 
 
 ## Wired by main.gd; `t` is the Terrain TileMapLayer (the dig-state owner).
@@ -16,7 +17,12 @@ func setup(t: Node) -> void:
 
 
 func _process(_delta: float) -> void:
-	queue_redraw()
+	# Only redraw while something's actually being drilled (plus one frame after the
+	# last dig, to clear the final cracks) — the idle case is the overwhelming common one.
+	var active: bool = _terrain != null and _terrain.has_active_digs()
+	if active or _was_active:
+		queue_redraw()
+	_was_active = active
 
 
 func _draw() -> void:

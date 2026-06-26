@@ -36,6 +36,10 @@ const COMPASS_SLOTS := 7                  # 4 ore (Prospector cap) + 2 powerup +
 const COMPASS_ORE_MAX := 4                # ore arrows shown while Prospector Eye runs
 const COMPASS_Y := 660.0
 const COMPASS_SPACING := 92.0
+# The compass scans the live ore set, so recompute it on a ~10 Hz tick rather than
+# every frame — the pips don't need 60 Hz and the scan is the HUD's biggest cost.
+const COMPASS_INTERVAL := 0.1
+var _compass_timer: float = 0.0
 const COL_PING_ORE := Color(0.35, 0.85, 1.0)
 const COL_PING_PWR := Color(1.0, 0.78, 0.30)
 const COL_PING_POI := Color(0.82, 0.56, 1.0)
@@ -511,6 +515,8 @@ func update_boosts(p: Node) -> void:
 
 
 func _process(delta: float) -> void:
+	_compass_timer -= delta
+
 	if _warn_timer > 0.0:
 		_warn_timer -= delta
 
@@ -614,7 +620,11 @@ func update_stats(p: Node) -> void:
 	else:
 		info.text = "%s     DEPTH  %s m     ORE  %d     ALLOY  %d" % [biome_str, depth_str, p.ore_collected, GameState.alloy]
 
-	_update_compass(p)
+	# Compass is throttled to ~10 Hz (see _compass_timer, ticked in _process); the
+	# pips hold their last layout between recomputes.
+	if _compass_timer <= 0.0:
+		_compass_timer = COMPASS_INTERVAL
+		_update_compass(p)
 	update_boosts(p)
 
 	# Status line priority: transient warning > recall prompt > hazard > overheat > hint.

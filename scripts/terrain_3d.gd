@@ -88,6 +88,7 @@ var _sv: SubViewport
 var _cam: Camera3D
 var _lamp: OmniLight3D
 var _mmi: Array[MultiMeshInstance3D] = []   # one per (block type, art variant): idx*VARIANTS + v
+var _buckets: Array = []   # reused per rebuild: one Array[Vector3] of cube centres per _mmi
 var _debris_pool: Array[MeshInstance3D] = []  # reused cubes mirroring 2D debris
 var _mtns: Array = []   # backdrop billboards: each {mi, half_h, z_abs, lift}, re-seated each frame
 var _last_seat_eye: float = INF   # camera eye-y / distance at the last mountain re-seat
@@ -346,6 +347,7 @@ func _build() -> void:
 			mmi.multimesh = mm
 			_sv.add_child(mmi)
 			_mmi.append(mmi)
+			_buckets.append([] as Array)
 
 	# A pool of cube instances that mirror the 2D cave-in debris each frame. Each
 	# carries its own material so it can wear the falling chunk's tile texture.
@@ -461,9 +463,11 @@ func _update_debris() -> void:
 			mi.visible = false
 			continue
 		var body: Node2D = kids[i]
-		var tex: Texture2D = body.get_node("Sprite2D").texture
+		# The chunk's texture is cached on the body (debris._tex), so read it directly
+		# rather than resolving the "Sprite2D" node by path for every chunk each frame.
+		var tex: Texture2D = body._tex
 		var mat: StandardMaterial3D = mi.mesh.surface_get_material(0)
-		if mat.albedo_texture != tex:
+		if tex != null and mat.albedo_texture != tex:
 			mat.albedo_texture = tex
 		mi.transform = Transform3D(
 			Basis(Vector3(0, 0, 1), -body.rotation),
@@ -488,10 +492,10 @@ func _rebuild_instances(center: Vector2) -> void:
 	_last_c1 = c1
 	_last_version = terrain.content_version
 
-	# Bucket visible solid cells by block type.
-	var buckets: Array = []
-	for i in _mmi.size():
-		buckets.append([] as Array)
+	# Bucket visible solid cells by block type, collecting just each cube's centre
+	# (the cubes never rotate/scale, so the transform is identity basis + translation).
+	for bucket in _buckets:
+		bucket.clear()
 	var z: float = -CUBE_DEPTH * 0.5
 	for cy in range(c0.y, c1.y + 1):
 		for cx in range(c0.x, c1.x + 1):
@@ -500,14 +504,29 @@ func _rebuild_instances(center: Vector2) -> void:
 			if idx < 0:
 				continue
 			var b: int = idx * terrain.VARIANTS + terrain.cell_variant(cell)
-			if b >= buckets.size():
+			if b >= _buckets.size():
 				continue
 			var ctr: Vector2 = terrain.map_to_local(cell)
-			buckets[b].append(Transform3D(Basis(), _to3d(ctr, z)))
+			_buckets[b].append(Vector3(ctr.x, -ctr.y, z))
 
+	# Upload each bucket as one bulk MultiMesh buffer write (12 floats/instance for
+	# TRANSFORM_3D: identity basis rows + origin) rather than a RenderingServer call
+	# per instance — thousands of cubes refresh in one assignment each.
 	for i in _mmi.size():
-		var xforms: Array = buckets[i]
+		var pts: Array = _buckets[i]
+		var n: int = pts.size()
 		var mm: MultiMesh = _mmi[i].multimesh
-		mm.instance_count = xforms.size()
-		for j in xforms.size():
-			mm.set_instance_transform(j, xforms[j])
+		if n == 0:
+			if mm.instance_count != 0:
+				mm.instance_count = 0
+			continue
+		var buf := PackedFloat32Array()
+		buf.resize(n * 12)
+		var o: int = 0
+		for p in pts:
+			buf[o + 0] = 1.0;  buf[o + 1] = 0.0;  buf[o + 2] = 0.0;  buf[o + 3] = p.x
+			buf[o + 4] = 0.0;  buf[o + 5] = 1.0;  buf[o + 6] = 0.0;  buf[o + 7] = p.y
+			buf[o + 8] = 0.0;  buf[o + 9] = 0.0;  buf[o + 10] = 1.0; buf[o + 11] = p.z
+			o += 12
+		mm.instance_count = n
+		mm.buffer = buf

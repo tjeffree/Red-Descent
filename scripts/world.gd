@@ -625,18 +625,39 @@ func nearest_poi(from: Vector2, count: int) -> Array:
 
 ## Shared "nearest N" over a dict keyed by Vector2i cells; returns the same
 ## { position, distance_m } entries (nearest first) the HUD compass consumes.
+## Runs each compass tick over a set that can hold thousands of ore cells, so it
+## does a single O(n) pass keeping only the `count` (≤4) nearest in a tiny sorted
+## list rather than allocating + fully sorting the whole map. Distances are
+## compared in local space (the layer's transform is a pure translation, so
+## squared distances match global) and only the few winners are converted to
+## global for the returned position.
 func _nearest_in(cells: Dictionary, from: Vector2, count: int) -> Array:
-	var all: Array = []
+	if count <= 0 or cells.is_empty():
+		return []
+	var from_local: Vector2 = to_local(from)
+	var best_pos: Array = []   # local positions, nearest-first
+	var best_d2: Array = []
+	var worst: float = INF
 	for cell in cells:
-		var pos := to_global(map_to_local(cell))
-		all.append({ "position": pos, "d2": from.distance_squared_to(pos) })
-	all.sort_custom(func(a, b): return a["d2"] < b["d2"])
+		var pos: Vector2 = map_to_local(cell)
+		var d2: float = from_local.distance_squared_to(pos)
+		if best_d2.size() >= count and d2 >= worst:
+			continue
+		var ins: int = best_d2.size()
+		while ins > 0 and best_d2[ins - 1] > d2:
+			ins -= 1
+		best_d2.insert(ins, d2)
+		best_pos.insert(ins, pos)
+		if best_d2.size() > count:
+			best_d2.remove_at(count)
+			best_pos.remove_at(count)
+		worst = best_d2[best_d2.size() - 1]
 
 	var out: Array = []
-	for i in range(mini(count, all.size())):
+	for i in range(best_pos.size()):
 		out.append({
-			"position": all[i]["position"],
-			"distance_m": sqrt(all[i]["d2"]) / TILE_SIZE * METERS_PER_TILE,
+			"position": to_global(best_pos[i]),
+			"distance_m": sqrt(best_d2[i]) / TILE_SIZE * METERS_PER_TILE,
 		})
 	return out
 
@@ -732,6 +753,12 @@ func _spawn_debris(tex: Texture2D, cell: Vector2i) -> void:
 	var d := DebrisScene.instantiate()
 	d.setup(tex, to_global(map_to_local(cell)), Vector2(randf_range(-30.0, 30.0), 24.0))
 	debris_container.add_child(d)
+
+
+## Whether any cell is currently mid-dig (has partial HP) — a cheap O(1) check the
+## crack overlay uses to skip its per-frame redraw when nothing's being drilled.
+func has_active_digs() -> bool:
+	return not _block_hp.is_empty()
 
 
 ## Cells currently mid-dig, with damage ratio (0..1), for the crack overlay.

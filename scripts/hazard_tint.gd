@@ -31,6 +31,7 @@ var _terrain: Node
 var _player: Node2D
 var _cam: Camera2D
 var _t: float = 0.0
+var _was_vis: bool = false   # had hazard vision last frame? (so we redraw once to clear)
 
 
 ## Wired by main.gd; `terrain` owns the hazard tags, `player` carries the camera
@@ -42,8 +43,15 @@ func setup(terrain: Node, player: Node2D) -> void:
 
 
 func _process(delta: float) -> void:
-	_t += delta
-	queue_redraw()
+	# Without the scanner the overlay draws nothing — skip the per-frame redraw
+	# entirely (redrawing once on the transition so a stale tint can't linger).
+	var vis: bool = _player != null and _player.hazard_vision
+	if vis:
+		_t += delta
+		queue_redraw()
+	elif _was_vis:
+		queue_redraw()
+	_was_vis = vis
 
 
 func _draw() -> void:
