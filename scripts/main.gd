@@ -46,6 +46,17 @@ const CLIPBOARD_HEIGHT := 11.0
 const NOTE_RANGE := 40.0
 const VaultNotes := preload("res://scripts/vault_notes.gd")
 
+# Plan boards hung on the vault back walls — purely decorative posters (no trigger)
+# beside the clipboards: mission-planning sketches left by the lost crew. Flat 2D
+# sprites over the 3D world like the clipboards; one per room, a random art each.
+# PLAN_HEIGHT is the on-screen height in world px (the room interior is ~5 tiles tall).
+const PLAN_TEX: Array[String] = [
+	"res://assets/plans/plans-1.png",
+	"res://assets/plans/plans-2.png",
+	"res://assets/plans/plans-3.png",
+]
+const PLAN_HEIGHT := 34.0
+
 @onready var player: CharacterBody2D = $Player
 @onready var terrain: TileMapLayer = $Terrain
 @onready var terrain_3d: Node = $Terrain3D
@@ -99,6 +110,7 @@ func _ready() -> void:
 	_place_capsule()                            # escape capsule at the shaft bottom (endgame dock)
 	_place_wreckage()                           # surface ship as a flat 2D sprite over the 3D world
 	_place_clipboards()                         # vault note plinths (one per ruins side-room)
+	_place_plans()                              # decorative plan boards on the vault walls
 
 	Audio.music("dive")
 
@@ -204,6 +216,38 @@ func _place_clipboards() -> void:
 		s.global_position = Vector2(spots[i].x, floor_y - half_h)
 		add_child(s)
 		_clipboards.append({ "pos": s.global_position, "phrase": phrases[i % phrases.size()] })
+
+
+## Hang a decorative plan board on each vault room's back wall (no trigger — purely
+## set-dressing beside the clipboards). A flat 2D sprite over the 3D world, scaled to
+## PLAN_HEIGHT and inset along the room's inward direction so its edge sits on the wall
+## surface and its body stays over open air (never overlapping the solid wall blocks).
+## Each board picks a random art, shuffled so a spread shows across the Ruins per dive.
+func _place_plans() -> void:
+	var mounts: Array[Dictionary] = terrain.vault_plan_mounts()
+	if mounts.is_empty() or PLAN_TEX.is_empty():
+		return
+
+	var order: Array[int] = []
+	for i in range(PLAN_TEX.size()):
+		order.append(i)
+	order.shuffle()
+
+	for i in range(mounts.size()):
+		var tex: Texture2D = load(PLAN_TEX[order[i % order.size()]])
+		if tex == null or tex.get_height() == 0:
+			continue
+		var s := Sprite2D.new()
+		s.texture = tex
+		s.centered = true
+		s.z_index = -5   # over the 3D world, behind the rig
+		var scl: float = PLAN_HEIGHT / float(tex.get_height())
+		s.scale = Vector2(scl, scl)
+		# Edge flush with the wall surface, body extending into the open room.
+		var half_w: float = tex.get_width() * scl * 0.5
+		var inward: Vector2 = mounts[i]["inward"]
+		s.global_position = mounts[i]["wall"] + inward * half_w
+		add_child(s)
 
 
 ## Which repair-stage sprite (0..3) the surface ship should show. The fully rebuilt

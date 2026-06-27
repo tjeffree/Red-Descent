@@ -118,6 +118,8 @@ var _powerup_cells: Dictionary = {}  # Vector2i -> String (Powerups id), buried 
 var _powerup_markers: Dictionary = {} # Vector2i -> Node2D, the faint glint drawn for each cache
 var _shaft_cx: Dictionary = {}       # ruins row y -> open grand-shaft centre x (for spawns)
 var _vault_note_cells: Array[Vector2i] = []   # one open cell per vault room (clipboard spawns)
+var _vault_plan_cells: Array[Vector2i] = []   # one open cell against each vault room's back wall (plan boards)
+var _vault_plan_inward: Array[Vector2] = []   # unit direction from that wall into the open room (per board)
 
 var _cave := FastNoiseLite.new()
 var _mat := FastNoiseLite.new()
@@ -433,6 +435,20 @@ func vault_note_positions() -> Array[Vector2]:
 	return out
 
 
+## One decorative plan-board mount per vault room: { pos, inward, wall } where pos is
+## the open cell centre flush against the back wall, inward points into the open room,
+## and wall is the world position of the wall surface the board hangs against. The
+## caller insets a wide board along inward so it sits over open air, edge on the wall.
+func vault_plan_mounts() -> Array[Dictionary]:
+	var out: Array[Dictionary] = []
+	var half: float = TILE_SIZE * 0.5
+	for i in range(_vault_plan_cells.size()):
+		var pos: Vector2 = to_global(map_to_local(_vault_plan_cells[i]))
+		var inward: Vector2 = _vault_plan_inward[i]
+		out.append({ "pos": pos, "inward": inward, "wall": pos - inward * half })
+	return out
+
+
 ## A rectangular chamber to one `side` of the shaft, walled in Bulkhead with a
 ## 2-tall rusted Vault door connecting it to the shaft.
 func _carve_room(shaft_x: int, ry: int, side: int) -> void:
@@ -457,6 +473,12 @@ func _carve_room(shaft_x: int, ry: int, side: int) -> void:
 	var note_x: int = far_x - side   # step back from the deepest wall
 	if note_x != door_x:
 		_vault_note_cells.append(Vector2i(note_x, ry + rh / 2))
+		# A plan board hung on the back wall: the open cell flush against the deepest
+		# wall, at the room's mid height (purely decorative, near the clipboard). The
+		# inward direction (toward the open room, away from the +side wall) lets the
+		# caller inset a wide board so it doesn't overlap the solid wall blocks.
+		_vault_plan_cells.append(Vector2i(far_x, ry))
+		_vault_plan_inward.append(Vector2(-side, 0))
 
 
 ## Overwrite a ruins-band interior cell with a specific block (Vault/Bulkhead).
