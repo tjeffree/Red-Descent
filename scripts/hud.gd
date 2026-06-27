@@ -32,6 +32,15 @@ var banner_style: StyleBoxFlat
 var compass_arrows: Array[Polygon2D] = []
 var compass_labels: Array[Label] = []
 var compass_empty: Label                 # shown when there's no signal at all
+# Radiation scrambles the compass: each arrow's true heading is stored here and the
+# displayed rotation is spun on top of it (see _process). _spin_intensity eases the
+# spin in/out so the needles wind up and settle rather than snapping.
+var _compass_true_angle: Array[float] = []
+var _compass_spin: float = 0.0
+var _spin_intensity: float = 0.0
+var _in_radiation: bool = false
+const COMPASS_SPIN_SPEED := 9.0          # rad/s of churn at full radiation
+const COMPASS_SPIN_RAMP := 4.0           # how fast the spin eases in/out
 const COMPASS_SLOTS := 7                  # 4 ore (Prospector cap) + 2 powerup + 1 POI
 const COMPASS_ORE_MAX := 4                # ore arrows shown while Prospector Eye runs
 const COMPASS_Y := 660.0
@@ -212,6 +221,7 @@ void fragment() {
 		a.visible = false
 		root.add_child(a)
 		compass_arrows.append(a)
+		_compass_true_angle.append(0.0)
 
 		var lbl := _make_label("", 14)
 		lbl.size = Vector2(96, 20)
@@ -429,7 +439,11 @@ func _update_compass(p: Node) -> void:
 			var pg: Dictionary = pings[i]
 			var x: float = start_x + float(i) * COMPASS_SPACING
 			compass_arrows[i].position = Vector2(x, COMPASS_Y)
-			compass_arrows[i].rotation = float(pg["angle"])
+			# Store the true heading; _process spins the displayed rotation on top of
+			# it during radiation, so the recompute mustn't overwrite the spin.
+			_compass_true_angle[i] = float(pg["angle"])
+			if _spin_intensity <= 0.0:
+				compass_arrows[i].rotation = _compass_true_angle[i]
 			compass_arrows[i].color = pg["color"]
 			compass_arrows[i].visible = true
 			compass_labels[i].text = "%s %dm" % [pg["tag"], int(pg["dist"])]
@@ -516,6 +530,7 @@ func update_boosts(p: Node) -> void:
 
 func _process(delta: float) -> void:
 	_compass_timer -= delta
+	_spin_compass(delta)
 
 	if _warn_timer > 0.0:
 		_warn_timer -= delta
@@ -547,6 +562,22 @@ func _process(delta: float) -> void:
 			powerup_box.visible = false
 		elif _powerup_timer < POWERUP_FADE:
 			powerup_box.modulate.a = _powerup_timer / POWERUP_FADE
+
+
+## Radiation interference: spin the compass needles. The spin eases in while in a
+## radiation zone and winds back down to the true heading on exit. Each visible
+## arrow gets a slightly different rate so they desync into a chaotic scramble.
+func _spin_compass(delta: float) -> void:
+	var target: float = 1.0 if _in_radiation else 0.0
+	_spin_intensity = move_toward(_spin_intensity, target, COMPASS_SPIN_RAMP * delta)
+	if _spin_intensity <= 0.0:
+		return   # settled — _update_compass owns the rotation again
+	_compass_spin += delta * COMPASS_SPIN_SPEED * _spin_intensity
+	for i in range(compass_arrows.size()):
+		if compass_arrows[i].visible:
+			var rate: float = 1.0 + 0.27 * float(i)   # per-needle desync
+			var offset: float = fmod(_compass_spin * rate, TAU) * _spin_intensity
+			compass_arrows[i].rotation = _compass_true_angle[i] + offset
 
 
 func _make_label(text: String, size: int) -> Label:
@@ -604,6 +635,7 @@ func update_stats(p: Node) -> void:
 	_alive = not bool(p.destroyed) and not bool(p.get("_ascending"))
 
 	var scramble: bool = bool(p.in_radiation)
+	_in_radiation = scramble   # drives the compass spin in _process
 	heat_val.text = _pct_readout(heat_bar.value, scramble)
 	energy_val.text = _pct_readout(energy_bar.value, scramble)
 	hull_val.text = _pct_readout(hull_bar.value, scramble)

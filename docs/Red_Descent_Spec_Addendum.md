@@ -78,15 +78,24 @@ sacrifice of the upgraded rig.
   depth **pressure ramp** (1.0× at ≤500 m → ~1.9× at 1000 m) raises energy drain and
   slows effective drill power.
 - **HUD** (`hud.gd`): biome readout + hazard warnings; radiation **scrambles the
-  telemetry** (gauge %/depth/biome readouts garble while true bar values persist).
-- **Hazard tint overlay** (`hazard_tint.gd`, new): a 2D overlay (sibling under Main, on
-  the 3D layer but below the rig — same slot as `dig_cracks`) washes a translucent,
-  gently pulsing, colour-coded tint over the hazard air-pockets so a damaging zone reads
-  at a glance instead of only via the HUD line. Lava = orange, gas = green, radiation =
-  violet; cells overscan 1px to merge into one glow. Fed by `world.hazard_cells_in_rect()`
-  (bounded to the visible window, cheap per frame). **Gated on the Seismic Scanner**
-  (any tier ≥ 1, via the rig's `hazard_vision` flag) — unscanned dives leave the deep
-  hazards unmarked, so revealing them is an upgrade payoff.
+  telemetry** (gauge %/depth/biome readouts garble while true bar values persist) **and
+  spins the compass needles** — each visible arrow rotates at a slightly different rate
+  (`_spin_compass`), easing in/out via `_spin_intensity` so the headings scramble in a
+  radiation zone and settle back to true on exit. True headings are cached in
+  `_compass_true_angle` so the 10 Hz recompute doesn't fight the spin.
+- **Hazard haze overlay** (`hazard_tint.gd`): a 2D overlay (sibling under Main, on
+  the 3D layer but below the rig — same slot as `dig_cracks`) breathes a soft, colour-coded
+  haze over the hazard air-pockets so a damaging zone reads at a glance as drifting fog.
+  Each cell stamps a soft radial blob scaled ~2.4× the tile, so overlapping stamps merge
+  into one organic cloud that envelops the pocket and feathers/spills into the surrounding
+  rock (vs. the earlier hard tinted squares). Lava = orange, gas = green, radiation = violet;
+  the breathing pulse is phase-offset by cell position so the field rolls instead of flashing
+  in unison. **Gas and radiation are airborne and waft** — each stamp wanders on a slow
+  per-cell Lissajous path (`_drift`) so neighbouring clouds drift out of sync; lava is
+  molten rock and stays anchored. Fed by `world.hazard_cells_in_rect()` (bounded to the visible window, cheap per
+  frame). **Always visible as ambience** — the Seismic Scanner (any tier ≥ 1, via the rig's
+  `hazard_vision` flag) only *intensifies* the haze (`ALPHA_AMBIENT` → `ALPHA_SCANNED`), so
+  an upgraded dive sees the danger zones glow brighter.
 - **Dive** (`main.gd`): start-at-depth from the chosen checkpoint (recall still rises to
   the true surface); biome-transition banners ("ENTERING THE MANTLE …") seed the §7 narration.
 - **Surface ship** (`main.gd` → `_place_wreckage`/`_wreckage_stage`): the mother ship rests on
