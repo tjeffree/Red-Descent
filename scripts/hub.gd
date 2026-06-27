@@ -49,8 +49,10 @@ var _msg: Label
 var _ship_bar: Label
 var _ship_teaser: Label
 var _launch_btn: Button             # bottom action bar: cycles the launch depth
+var _descend_btn: Button            # bottom action bar: launches the dive (carries the input hint)
 var _buttons: Array[Button] = []    # bottom action bar — part of the unified nav grid
 var _comms_box: VBoxContainer       # bottom-left narrative strip (relay/last-run/status)
+var _using_gamepad: bool = false    # last input device — drives the Descend button's hint
 var _launch_idx: int = 0             # index into available_checkpoints()
 
 # Phase 7: narrative — Earth-relay panel + archive overlay.
@@ -610,6 +612,8 @@ func _build_action_bar() -> void:
 	descend.pressed.connect(_launch_dive)
 	bar.add_child(descend)
 	_buttons.append(descend)
+	_descend_btn = descend
+	_update_descend_hint()
 
 
 ## A styled, clickable action button. `primary` gives it the gold accent
@@ -754,6 +758,38 @@ func _navigate(dir: Vector2) -> void:
 		Audio.ui("focus")
 
 
+## Track the last-used input device so the Descend button can show the matching
+## hint (controller [Y] vs keyboard [Space]). Switch only on a real button/key —
+## ignore idle stick drift and mouse motion so the hint doesn't flicker.
+func _input(event: InputEvent) -> void:
+	var gamepad := event is InputEventJoypadButton \
+		or (event is InputEventJoypadMotion and absf((event as InputEventJoypadMotion).axis_value) > 0.5)
+	var keymouse := event is InputEventKey or event is InputEventMouseButton
+	if gamepad and not _using_gamepad:
+		_using_gamepad = true
+		_update_descend_hint()
+	elif keymouse and not gamepad and _using_gamepad:
+		_using_gamepad = false
+		_update_descend_hint()
+
+
+## Continuous archive scroll: while the log is open, Up/Down (arrows, D-pad, or
+## stick — analog strength included) scroll it smoothly.
+func _process(delta: float) -> void:
+	if not _archive_open:
+		return
+	var dir := Input.get_axis("ui_up", "ui_down")
+	if absf(dir) > 0.1:
+		var scroll := _archive.get_node("scroll") as ScrollContainer
+		scroll.scroll_vertical += int(dir * 900.0 * delta)
+
+
+## Refresh the Descend button's input hint for the current device.
+func _update_descend_hint() -> void:
+	if _descend_btn != null:
+		_descend_btn.text = "DESCEND   [Y]" if _using_gamepad else "DESCEND   [SPACE]"
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	# Archive overlay: while open it captures input — toggle key + cancel close
 	# it, everything else is swallowed so the shop underneath stays inert.
@@ -766,7 +802,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		and (event as InputEventJoypadButton).button_index == JOY_BUTTON_LEFT_SHOULDER
 	var toggle_archive := lb or (event.is_action_pressed("dig_down") and not event.is_action_pressed("ui_down"))
 	if _archive_open:
-		if toggle_archive or event.is_action_pressed("ui_cancel"):
+		# Up/Down (arrows, D-pad, stick) scroll the log — continuous scrolling is
+		# driven from _process; here we just swallow the event so it doesn't close.
+		# Any other key or controller button press closes the archive.
+		if event.is_action_pressed("ui_up") or event.is_action_pressed("ui_down") \
+				or event.is_action_pressed("ui_left") or event.is_action_pressed("ui_right"):
+			get_viewport().set_input_as_handled()
+			return
+		if (event is InputEventKey and event.pressed and not event.echo) \
+				or (event is InputEventJoypadButton and event.pressed):
 			_set_archive(false)
 			Audio.ui("close")
 		get_viewport().set_input_as_handled()
