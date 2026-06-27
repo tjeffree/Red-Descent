@@ -54,6 +54,7 @@ const COL_PING_PWR := Color(1.0, 0.78, 0.30)
 const COL_PING_POI := Color(0.82, 0.56, 1.0)
 var _return_available: bool = false
 var _dock_prompt: String = ""   # set when the rig is at the capsule terminal
+var _note_prompt: String = ""   # set when the rig is by a vault clipboard
 var _warn_text: String = ""
 var _warn_timer: float = 0.0
 
@@ -79,6 +80,8 @@ const TRANSMISSION_FADE := 1.2    # of which the tail is a fade-out
 var datalog_box: Panel
 var datalog_title: Label
 var datalog_body: Label
+var note_box: Panel
+var note_label: Label
 var _datalog_timer: float = 0.0
 const DATALOG_SHOW := 6.0
 const DATALOG_FADE := 1.5
@@ -241,7 +244,7 @@ void fragment() {
 	diamond.set_script(load("res://scripts/button_diamond.gd"))
 	diamond.position = Vector2(1018, 588)
 	root.add_child(diamond)
-	diamond.configure(_font, { "A": "Jump / Thrust", "Y": "Recall to hub" })
+	diamond.configure(_font, { "A": "Jump / Thrust", "Y": "Recall to hub", "B": "Read / Dock" })
 	var dash_hint := _make_label("RB  Dash      Stick  move / dig", 13)
 	dash_hint.position = Vector2(1018, 688)
 	root.add_child(dash_hint)
@@ -320,6 +323,56 @@ void fragment() {
 	datalog_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	dvbox.add_child(datalog_body)
 
+	# Vault note popup — a recovered clipboard idiom, styled as aged paper. Stays up
+	# until dismissed (no fade timer); the body holds the phrase, big and centred.
+	note_box = Panel.new()
+	note_box.set_anchors_preset(Control.PRESET_CENTER)
+	note_box.anchor_left = 0.5
+	note_box.anchor_right = 0.5
+	note_box.anchor_top = 0.5
+	note_box.anchor_bottom = 0.5
+	note_box.offset_left = -320.0
+	note_box.offset_right = 320.0
+	note_box.offset_top = -120.0
+	note_box.offset_bottom = 120.0
+	note_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var nbg := StyleBoxFlat.new()
+	nbg.bg_color = Color(0.85, 0.81, 0.71, 0.97)         # aged cream paper
+	nbg.border_color = Color(0.36, 0.24, 0.14, 0.98)     # clipboard brown
+	nbg.set_border_width_all(4)
+	nbg.set_corner_radius_all(3)
+	nbg.set_content_margin_all(20)
+	note_box.add_theme_stylebox_override("panel", nbg)
+	note_box.visible = false
+	root.add_child(note_box)
+
+	var nvbox := VBoxContainer.new()
+	nvbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	nvbox.offset_left = 18.0
+	nvbox.offset_right = -18.0
+	nvbox.offset_top = 12.0
+	nvbox.offset_bottom = -12.0
+	nvbox.add_theme_constant_override("separation", 14)
+	note_box.add_child(nvbox)
+
+	var nhead := _make_label("◇ RECOVERED NOTE — origin unknown", 13)
+	nhead.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nhead.add_theme_color_override("font_color", Color(0.45, 0.30, 0.16))
+	nvbox.add_child(nhead)
+
+	note_label = _make_label("", 22)
+	note_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	note_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	note_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note_label.add_theme_color_override("font_color", Color(0.16, 0.11, 0.07))
+	note_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	nvbox.add_child(note_label)
+
+	var nfoot := _make_label("[F] dismiss", 12)
+	nfoot.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nfoot.add_theme_color_override("font_color", Color(0.45, 0.30, 0.16))
+	nvbox.add_child(nfoot)
+
 	# Salvage-cache pickup popup — centred, accent colour set per pickup.
 	powerup_box = Panel.new()
 	powerup_box.set_anchors_preset(Control.PRESET_CENTER)
@@ -396,6 +449,22 @@ func set_return_available(v: bool) -> void:
 ## When non-empty, shown as the top-priority status line (the capsule dock prompt).
 func set_dock_prompt(text: String) -> void:
 	_dock_prompt = text
+
+
+## Status-line prompt shown when the rig is beside a vault clipboard.
+func set_note_prompt(text: String) -> void:
+	_note_prompt = text
+
+
+## Show a recovered vault idiom on the parchment popup; stays until hide_note().
+func show_note(text: String) -> void:
+	note_label.text = text
+	note_box.modulate.a = 1.0
+	note_box.visible = true
+
+
+func hide_note() -> void:
+	note_box.visible = false
 
 
 ## Centred run-end banner. `accent` tints the frame + text (red for a death,
@@ -669,6 +738,8 @@ func update_stats(p: Node) -> void:
 		msg = "!! OVERHEAT — hull venting, drill locked until cooled !!"
 	if _warn_timer > 0.0:
 		msg = _warn_text
+	if _note_prompt != "":
+		msg = _note_prompt   # beside a vault clipboard
 	if _dock_prompt != "":
 		msg = _dock_prompt   # at the capsule — highest priority
 	status.text = msg

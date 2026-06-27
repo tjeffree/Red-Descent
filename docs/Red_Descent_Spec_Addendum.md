@@ -157,8 +157,9 @@ All in `world.gd` (plus one Ruins lore beat). The world now extends past the Man
 - **Capsule terminal** (`world.gd`): `_carve_ruins()` opens a chamber at the very bottom of the
   grand shaft; `capsule_position()` returns its world point.
 - **Docking** (`main.gd` + `hud.gd`): within `DOCK_RANGE` of the capsule the HUD shows a dock
-  prompt (top-priority status, via `hud.set_dock_prompt`) instead of the recall prompt; `interact`
-  there changes to `scenes/endgame.tscn`.
+  prompt (top-priority status, via `hud.set_dock_prompt`) instead of the recall prompt; the
+  `examine` action there (the same button that reads vault notes — keyboard **F** / joypad **B**)
+  changes to `scenes/endgame.tscn`. (Recall stays on `interact` — E / Y — everywhere else.)
 - **Endgame gating** (`main.gd` `_reject_dock`, `lore.gd`, `hub.gd` — see
   `docs/Red_Descent_Endgame_Gating_Changes.md`): docking is gated on `GameState.ship_complete()`.
   The capsule is inert until the surface wreckage is fully restored — narratively the rig can't
@@ -180,6 +181,17 @@ All in `world.gd` (plus one Ruins lore beat). The world now extends past the Man
 - **Video**: `silo-reveal.ogv` (converted from the supplied mp4) is wired and verified; `launch.ogv`
   drops in the same way once generated. Conversion: `ffmpeg -i in.mp4 -codec:v libtheora -qscale:v 8
   -codec:a libvorbis -qscale:a 5 out.ogv` then re-import (Godot 4 only decodes Ogg Theora).
+- **Vault notes** (`world.gd` + `main.gd` + `hud.gd` + `scripts/vault_notes.gd`): each Ruins
+  side-room ("vault") seats one **clipboard plinth** — evidence of human civilisation just above the
+  capsule. `_carve_room()` records one open floor cell per room (`vault_note_positions()`); `main.gd`
+  `_place_clipboards()` spawns a flat 2D sprite (`assets/clipboard.png`, background flood-keyed to
+  transparency, `z_index = -5` over the 3D world) resting on each room floor and ties a **random
+  idiom** to it. The phrase pool (`VaultNotes.PHRASES` — obscure, place-free English idioms read as a
+  lost civilisation's stab at meaning) is shuffled per dive, so a vault says something different each
+  session. The new **`examine`** action (keyboard **F** / joypad **B**, the diamond's right/red
+  button — also the capsule dock) opens the note within `NOTE_RANGE` and dismisses it; while a note is
+  up it consumes the press so the capsule can't double-fire. The HUD shows a parchment popup
+  (`show_note`/`hide_note`) and a contextual `[F] READ NOTE` status prompt (`set_note_prompt`).
 
 ### Audio — implemented (Sound & music pass)
 

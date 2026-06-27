@@ -117,6 +117,7 @@ var _data_log_cells: Dictionary = {} # Vector2i -> String (Lore.DATA_LOGS id), b
 var _powerup_cells: Dictionary = {}  # Vector2i -> String (Powerups id), buried salvage caches
 var _powerup_markers: Dictionary = {} # Vector2i -> Node2D, the faint glint drawn for each cache
 var _shaft_cx: Dictionary = {}       # ruins row y -> open grand-shaft centre x (for spawns)
+var _vault_note_cells: Array[Vector2i] = []   # one open cell per vault room (clipboard spawns)
 
 var _cave := FastNoiseLite.new()
 var _mat := FastNoiseLite.new()
@@ -424,6 +425,14 @@ func capsule_position() -> Vector2:
 	return to_global(map_to_local(Vector2i(bx, rb)))
 
 
+## World positions for one clipboard plinth per vault side-room, top-to-bottom.
+func vault_note_positions() -> Array[Vector2]:
+	var out: Array[Vector2] = []
+	for cell in _vault_note_cells:
+		out.append(to_global(map_to_local(cell)))
+	return out
+
+
 ## A rectangular chamber to one `side` of the shaft, walled in Bulkhead with a
 ## 2-tall rusted Vault door connecting it to the shaft.
 func _carve_room(shaft_x: int, ry: int, side: int) -> void:
@@ -433,13 +442,21 @@ func _carve_room(shaft_x: int, ry: int, side: int) -> void:
 	var door_x: int = shaft_x + side * (RUINS_SHAFT_HALF + 1)   # wall cell at the shaft edge
 	_set_ruins(Vector2i(door_x, ry), VAULT)
 	_set_ruins(Vector2i(door_x, ry + 1), VAULT)
+	var far_x: int = door_x   # deepest column actually carved (for the note plinth)
 	for i in range(1, rw + 1):
 		var cx2: int = door_x + side * i
 		if cx2 < 2 or cx2 > W - 3:
 			break
+		far_x = cx2
 		for oy in range(-(rh / 2), rh / 2 + 1):
 			var cy2: int = clampi(ry + oy, _ruins_top_y() + 3, rb)
 			_clear_cell(Vector2i(cx2, cy2))
+
+	# A clipboard plinth ~mid-room, one cell in from the back wall, on the room's
+	# floor row — never on the door cell, always in carved-open air.
+	var note_x: int = far_x - side   # step back from the deepest wall
+	if note_x != door_x:
+		_vault_note_cells.append(Vector2i(note_x, ry + rh / 2))
 
 
 ## Overwrite a ruins-band interior cell with a specific block (Vault/Bulkhead).

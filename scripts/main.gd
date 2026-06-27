@@ -37,6 +37,15 @@ const WRECKAGE_CROP_BOTTOM := 30
 const CAPSULE_TEX := "res://assets/mars-capsule.png"
 const CAPSULE_WIDTH := 120.0
 
+# Clipboard plinths in the vault rooms — each carries one obscure idiom (see
+# VaultNotes), drilled-in by a lost civilisation as if it were scripture. A flat 2D
+# sprite over the 3D world like the capsule/wreckage. CLIPBOARD_HEIGHT is its
+# on-screen height in world px; NOTE_RANGE is how close the rig must be to read it.
+const CLIPBOARD_TEX := "res://assets/clipboard.png"
+const CLIPBOARD_HEIGHT := 11.0
+const NOTE_RANGE := 40.0
+const VaultNotes := preload("res://scripts/vault_notes.gd")
+
 @onready var player: CharacterBody2D = $Player
 @onready var terrain: TileMapLayer = $Terrain
 @onready var terrain_3d: Node = $Terrain3D
@@ -52,6 +61,8 @@ var _surface_y: float = 0.0
 var _current_biome: String = ""   # tracked to narrate biome transitions
 var _cavein_pending: bool = false  # set on a cave-in frame; consumed by the lore ctx
 var _ambient_t: float = 12.0       # countdown to the next ambient pilot remark
+var _clipboards: Array = []        # [{ pos: Vector2, phrase: String }] vault note plinths
+var _note_open: bool = false       # a clipboard's note is currently on screen
 
 # Display copy for each biome transition (the "what's happening" feedback).
 const BIOME_BANNERS := {
@@ -87,6 +98,7 @@ func _ready() -> void:
 	terrain_3d.setup(terrain, player, debris)   # 3D cube render; also hides the flat tiles
 	_place_capsule()                            # escape capsule at the shaft bottom (endgame dock)
 	_place_wreckage()                           # surface ship as a flat 2D sprite over the 3D world
+	_place_clipboards()                         # vault note plinths (one per ruins side-room)
 
 	Audio.music("dive")
 
@@ -163,6 +175,37 @@ func _place_wreckage() -> void:
 	add_child(s)
 
 
+## Seat one clipboard plinth in each vault side-room and tie a random idiom to it.
+## The phrase pool is shuffled per dive, so a given vault says something different
+## every session (and no two vaults repeat until the pool is exhausted). A flat 2D
+## sprite over the 3D world, behind the rig like the capsule.
+func _place_clipboards() -> void:
+	var spots: Array[Vector2] = terrain.vault_note_positions()
+	if spots.is_empty():
+		return
+	var tex: Texture2D = load(CLIPBOARD_TEX)
+	if tex == null or tex.get_height() == 0:
+		return
+
+	var phrases: Array[String] = VaultNotes.PHRASES.duplicate()
+	phrases.shuffle()
+
+	var scl: float = CLIPBOARD_HEIGHT / float(tex.get_height())
+	var half_h: float = tex.get_height() * scl * 0.5
+	for i in range(spots.size()):
+		var s := Sprite2D.new()
+		s.texture = tex
+		s.centered = true
+		s.z_index = -5   # over the 3D world, behind the rig
+		s.scale = Vector2(scl, scl)
+		# Rest the clipboard's base on the room floor (the floor cube top is half a
+		# tile below the open floor cell's centre), centred on the column.
+		var floor_y: float = spots[i].y + terrain.TILE_SIZE * 0.5
+		s.global_position = Vector2(spots[i].x, floor_y - half_h)
+		add_child(s)
+		_clipboards.append({ "pos": s.global_position, "phrase": phrases[i % phrases.size()] })
+
+
 ## Which repair-stage sprite (0..3) the surface ship should show. The fully rebuilt
 ## art (stage 3) is reserved for an actually-complete ship; intermediate parts step
 ## the hull through stages 0-2.
@@ -220,6 +263,11 @@ func _process_diving(delta: float) -> void:
 		_die("POWER DEPLETED — battery dead")
 		return
 
+	# Vault note plinths — read/dismiss the buried idioms (the "examine" action).
+	# Returns true if it consumed this frame's examine press, so the capsule dock
+	# (also on "examine") can't double-fire from the same press.
+	var ate_examine: bool = _process_notes()
+
 	# At the capsule terminal (shaft bottom) docking takes over from recall. The
 	# capsule is inert until the surface wreckage is fully restored — only then can
 	# the rig carry a charge big enough to wake it (see the endgame-gating doc).
@@ -228,16 +276,20 @@ func _process_diving(delta: float) -> void:
 		if GameState.ship_complete():
 			# Wreckage whole → dock and begin the endgame (GDD §7): the rig is
 			# sacrificed to launch the capsule.
-			hud.set_dock_prompt("[E] DOCK — give the capsule the rig's power")
-			if Input.is_action_just_pressed("interact"):
+			hud.set_dock_prompt("[F] DOCK — give the capsule the rig's power")
+			if Input.is_action_just_pressed("examine") and not ate_examine:
 				hud.set_dock_prompt("")
 				Audio.stop_oneshots()   # cut any in-flight alarm before the cinematic
 				Audio.ui("confirm")
 				Audio.stop_loops()
 				get_tree().change_scene_to_file(ENDGAME_SCENE)
 		else:
-			# Capsule is dead — the rig can't carry the power yet. Bounce home.
-			_reject_dock()
+			# Capsule is dead — pressing examine attempts the dock, which explains why
+			# it won't wake and bounces the rig home (ore still banked). On-touch no
+			# longer triggers it: the player chooses to engage the terminal.
+			hud.set_dock_prompt("[F] DOCK — terminal dark, capsule unpowered")
+			if Input.is_action_just_pressed("examine") and not ate_examine:
+				_reject_dock()
 		return
 	hud.set_dock_prompt("")
 
@@ -309,6 +361,47 @@ func _process_powerups() -> void:
 
 	if player.consume_last_gasp():
 		hud.flash("!! LAST GASP — systems hold at 1% !!")
+
+
+## Vault note plinths (the clipboards). While a note is on screen, "examine"
+## dismisses it; otherwise, standing within NOTE_RANGE of a clipboard shows a
+## prompt and "examine" opens its idiom. Returns true if this frame's examine
+## press was consumed here (so the capsule dock won't also fire on it).
+func _process_notes() -> bool:
+	if _note_open:
+		hud.set_note_prompt("[F] CLOSE")
+		if Input.is_action_just_pressed("examine"):
+			hud.hide_note()
+			hud.set_note_prompt("")
+			_note_open = false
+			Audio.ui("confirm")
+			return true
+		return false
+
+	var near: Dictionary = _nearest_clipboard()
+	if near.is_empty():
+		hud.set_note_prompt("")
+		return false
+
+	hud.set_note_prompt("[F] READ NOTE")
+	if Input.is_action_just_pressed("examine"):
+		hud.show_note(String(near["phrase"]))
+		_note_open = true
+		Audio.sfx("datalog")
+		return true
+	return false
+
+
+## The clipboard entry within NOTE_RANGE of the rig, or {} if none is in reach.
+func _nearest_clipboard() -> Dictionary:
+	var best: Dictionary = {}
+	var best_d: float = NOTE_RANGE
+	for c in _clipboards:
+		var d: float = player.global_position.distance_to(c["pos"])
+		if d < best_d:
+			best_d = d
+			best = c
+	return best
 
 
 ## Reached the capsule terminal but the wreckage isn't restored yet — the capsule
