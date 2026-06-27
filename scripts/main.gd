@@ -276,7 +276,7 @@ func _process_diving(delta: float) -> void:
 		if GameState.ship_complete():
 			# Wreckage whole → dock and begin the endgame (GDD §7): the rig is
 			# sacrificed to launch the capsule.
-			hud.set_dock_prompt("[F] DOCK — give the capsule the rig's power")
+			hud.set_dock_prompt("DOCK — give the capsule the rig's power")
 			if Input.is_action_just_pressed("examine") and not ate_examine:
 				hud.set_dock_prompt("")
 				Audio.stop_oneshots()   # cut any in-flight alarm before the cinematic
@@ -287,7 +287,7 @@ func _process_diving(delta: float) -> void:
 			# Capsule is dead — pressing examine attempts the dock, which explains why
 			# it won't wake and bounces the rig home (ore still banked). On-touch no
 			# longer triggers it: the player chooses to engage the terminal.
-			hud.set_dock_prompt("[F] DOCK — terminal dark, capsule unpowered")
+			hud.set_dock_prompt("DOCK — terminal dark, capsule unpowered")
 			if Input.is_action_just_pressed("examine") and not ate_examine:
 				_reject_dock()
 		return
@@ -369,7 +369,7 @@ func _process_powerups() -> void:
 ## press was consumed here (so the capsule dock won't also fire on it).
 func _process_notes() -> bool:
 	if _note_open:
-		hud.set_note_prompt("[F] CLOSE")
+		hud.set_note_prompt("CLOSE")
 		if Input.is_action_just_pressed("examine"):
 			hud.hide_note()
 			hud.set_note_prompt("")
@@ -383,7 +383,7 @@ func _process_notes() -> bool:
 		hud.set_note_prompt("")
 		return false
 
-	hud.set_note_prompt("[F] READ NOTE")
+	hud.set_note_prompt("READ NOTE")
 	if Input.is_action_just_pressed("examine"):
 		hud.show_note(String(near["phrase"]))
 		_note_open = true

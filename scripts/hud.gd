@@ -58,6 +58,14 @@ var _note_prompt: String = ""   # set when the rig is by a vault clipboard
 var _warn_text: String = ""
 var _warn_timer: float = 0.0
 
+# Input-device awareness: track the last-used device so the HUD shows the matching
+# bindings — keyboard hints in the status line, or the gamepad face-button diamond.
+var _using_gamepad: bool = false
+var _pad_hints: Control         # gamepad face-button diamond (bottom-right)
+var _pad_dash: Label            # gamepad dash / stick hint line
+var _note_foot: Label           # note-popup dismiss footer (device-aware glyph)
+var _pad_examine_label: String = ""   # diamond's contextual B label ("Read"/"Dock"/"")
+
 # Low-hull red vignette + low-energy audio warning, driven from update_stats.
 var hull_vignette: ColorRect
 const HULL_WARN_FRAC := 0.4       # hull fraction below which the glow appears
@@ -239,15 +247,19 @@ void fragment() {
 	compass_empty.visible = false
 	root.add_child(compass_empty)
 
-	# Controller hints (face-button diamond) bottom-right.
+	# Controller hints (face-button diamond) bottom-right — shown only while a
+	# gamepad is the active device. Read/Dock is NOT listed here: it's a contextual
+	# prompt (status line) that appears only when there's a note or capsule in reach.
 	var diamond := Control.new()
 	diamond.set_script(load("res://scripts/button_diamond.gd"))
 	diamond.position = Vector2(1018, 588)
 	root.add_child(diamond)
-	diamond.configure(_font, { "A": "Jump / Thrust", "Y": "Recall to hub", "B": "Read / Dock" })
+	diamond.configure(_font, { "A": "Jump / Thrust", "Y": "Recall to hub" })
+	_pad_hints = diamond
 	var dash_hint := _make_label("RB  Dash      Stick  move / dig", 13)
 	dash_hint.position = Vector2(1018, 688)
 	root.add_child(dash_hint)
+	_pad_dash = dash_hint
 
 	# Pilot-log subtitle — lower-centre, above the ore compass. Distinct from the
 	# red HAZARD flash: a calm, narrow caption box that fades after a few seconds.
@@ -372,6 +384,7 @@ void fragment() {
 	nfoot.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	nfoot.add_theme_color_override("font_color", Color(0.45, 0.30, 0.16))
 	nvbox.add_child(nfoot)
+	_note_foot = nfoot
 
 	# Salvage-cache pickup popup — centred, accent colour set per pickup.
 	powerup_box = Panel.new()
@@ -440,6 +453,52 @@ void fragment() {
 		chip.visible = false
 		boost_box.add_child(chip)
 		boost_chips.append(chip)
+
+	_refresh_input_hints()   # start in keyboard mode (diamond hidden) until a pad is used
+
+
+## Track the last-used input device so the HUD shows the matching bindings. Switch
+## only on a real button/key — ignore idle stick drift and mouse motion so the
+## hints don't flicker. The status line picks up the device on its next rebuild.
+func _input(event: InputEvent) -> void:
+	var gamepad := event is InputEventJoypadButton \
+		or (event is InputEventJoypadMotion and absf((event as InputEventJoypadMotion).axis_value) > 0.5)
+	var keymouse := event is InputEventKey or event is InputEventMouseButton
+	if gamepad and not _using_gamepad:
+		_using_gamepad = true
+		_refresh_input_hints()
+	elif keymouse and not gamepad and _using_gamepad:
+		_using_gamepad = false
+		_refresh_input_hints()
+
+
+## Show the gamepad diamond only on a controller; swap the note-popup footer glyph
+## to match. (The status line's bindings are device-aware in update_stats.)
+func _refresh_input_hints() -> void:
+	if _pad_hints != null:
+		_pad_hints.visible = _using_gamepad
+	if _pad_dash != null:
+		_pad_dash.visible = _using_gamepad
+	if _note_foot != null:
+		_note_foot.text = "[B] dismiss" if _using_gamepad else "[F] dismiss"
+
+
+## Add/remove the diamond's contextual B (examine) entry to mirror the dock/note
+## prompt. Reconfigures only when the label changes, so it's cheap per frame.
+func _sync_dock_hint() -> void:
+	var want := ""
+	if _note_prompt != "":
+		want = "Read"
+	if _dock_prompt != "":
+		want = "Dock"
+	if want == _pad_examine_label:
+		return
+	_pad_examine_label = want
+	var active := { "A": "Jump / Thrust", "Y": "Recall to hub" }
+	if want != "":
+		active["B"] = want
+	if _pad_hints != null:
+		_pad_hints.configure(_font, active)
 
 
 func set_return_available(v: bool) -> void:
@@ -728,10 +787,14 @@ func update_stats(p: Node) -> void:
 		_update_compass(p)
 	update_boosts(p)
 
-	# Status line priority: transient warning > recall prompt > hazard > overheat > hint.
-	var msg := "[A/D] move/dig   [S] dig down   [Space] jump / hold thrust   [Shift] dash"
+	# Status line priority: transient warning > read/dock prompt > hazard > overheat
+	# > recall > movement hint. Bindings adapt to the active device: a controller
+	# reads movement/jump/recall off the diamond, so its default hint is blank.
+	var recall_key := "[Y]" if _using_gamepad else "[E]"
+	var examine_key := "[B]" if _using_gamepad else "[F]"
+	var msg := "" if _using_gamepad else "[A/D] move/dig   [S] dig down   [Space] jump / hold thrust   [Shift] dash"
 	if _return_available:
-		msg = "[E] RECALL TO HUB — smelt %d ore into alloy" % p.ore_collected
+		msg = "%s RECALL TO HUB — smelt %d ore into alloy" % [recall_key, p.ore_collected]
 	if String(p.active_hazard) != "" and HAZARD_WARN.has(p.active_hazard):
 		msg = HAZARD_WARN[p.active_hazard]
 	elif not _return_available and p.heat >= p.heat_max:
@@ -739,10 +802,14 @@ func update_stats(p: Node) -> void:
 	if _warn_timer > 0.0:
 		msg = _warn_text
 	if _note_prompt != "":
-		msg = _note_prompt   # beside a vault clipboard
+		msg = "%s %s" % [examine_key, _note_prompt]   # beside a vault clipboard
 	if _dock_prompt != "":
-		msg = _dock_prompt   # at the capsule — highest priority
+		msg = "%s %s" % [examine_key, _dock_prompt]   # at the capsule — highest priority
 	status.text = msg
+
+	# Light the diamond's B button contextually — Read by a clipboard, Dock at the
+	# capsule — so the controller hint matches the status-line prompt.
+	_sync_dock_hint()
 
 
 ## A "NN%" readout, jittered into garbled digits while telemetry is scrambled.
